@@ -1,0 +1,8 @@
+/reference/
+/.agents/
+/resource/HV Monster Portraits/.dev/
+/node_modules/
+/.cache/
+/coverage/
+/tmp/
+*.log
