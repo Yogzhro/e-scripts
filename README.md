@@ -6,4 +6,4 @@
 
 ## 脚本
 
-- `HV Monster Portraits.js` 0.0.1.0：13 种族原创列表与详情立绘、严格页面匹配、HV Utils／综合汉化兼容布局和本地资源构建均已完成，等待固定标签发布与真实页面最终验收。
+- `HV Monster Portraits.js` 0.0.1.0：13 种族原创列表与详情立绘、严格页面匹配、HV Utils／综合汉化兼容布局和本地资源构建均已完成；已发布不可变标签 [`hvmp-v0.0.1.0`](https://github.com/Yogzhro/e-scripts/tree/hvmp-v0.0.1.0)，并通过固定标签 CDN 与 alt 站实页验收。

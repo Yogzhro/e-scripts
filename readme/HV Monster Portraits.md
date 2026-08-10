@@ -2,7 +2,7 @@
 
 - 当前版本：0.0.1.0
 - 作者：Reina
-- 状态：13 种族立绘与生产资源已完成，等待仓库发布和真实页面验收
+- 状态：已发布（`hvmp-v0.0.1.0`）
 
 ## 用途与适用页面
 
@@ -25,7 +25,7 @@
 
 ## 权限与安装
 
-正式脚本使用 `@grant none`，仅匹配主站与 alt 站。仓库根目录的 `HV Monster Portraits.js` 使用固定版本的 jsDelivr 地址；`hvmp-v0.0.1.0` 标签及 CDN 文件验证完成后即可安装，标签发布前不应作为正式版安装。
+正式脚本使用 `@grant none`，仅匹配主站与 alt 站。仓库根目录的 `HV Monster Portraits.js` 使用固定版本的 jsDelivr 地址；`hvmp-v0.0.1.0` 标签及全部 CDN 文件已经验证，可从 [固定标签脚本](https://raw.githubusercontent.com/Yogzhro/e-scripts/hvmp-v0.0.1.0/HV%20Monster%20Portraits.js) 安装。
 
 开发资源位于 `resource/HV Monster Portraits/`。`build-assets.js` 使用 Sharp 将 13 张列表母图合成为 1352×144 精灵图，将 13 张详情母图输出为 600×900 WebP，并可生成包含本地 data URI 的 `.dev/HV Monster Portraits.dev.user.js`；该开发副本不会被 Git 跟踪。
 
@@ -35,6 +35,7 @@
 - 所有人物均明确为 21 岁以上；不同种族使用独立配色和标志物。Dragonkin 的列表与详情图均保留清晰完整的龙翼。
 - 外部 CDN 不可用时画像会保持空卡状态并记录一次控制台警告，不会改用其他种族或内嵌正式资源。
 - 画像布局以当前 Monster Lab DOM 及 HV Utils 4.2.4 为兼容基准；页面结构变化后需重新验证。
+- 发布验收时 alt 站列表与属性页可达并通过实页验证；主站在当时的测试网络返回 `ERR_CONNECTION_CLOSED`，因此主站功能由相同 URL／DOM 单元测试覆盖，未声称完成该网络环境下的实页验证。
 
 ## 测试
 
@@ -63,3 +64,5 @@ node .\test\hv_monster_portraits_test.js
 ### 0.0.1.0
 
 建立独立脚本、严格页面匹配、13 种中英映射、兼容 HV Utils 的无新增列画像方案、响应式详情面板、Sharp 资源构建器和两组独立测试；完成列表原型、详情原型及全量立绘三阶段审核，并生成全部生产与本地开发资源。
+
+发布至 `Yogzhro/e-scripts`，创建不可变标签 `hvmp-v0.0.1.0`。提交哈希与标签路径下的列表精灵图及 13 张详情图均通过 HTTP 200、`image/webp` 和实际解码尺寸验证；alt 站实页确认 200 行 HV Utils／综合汉化列表、宽屏详情与窄屏详情布局正常。
