@@ -34,7 +34,7 @@ function positiveNumber(value) {
   return Number.isFinite(number) && number > 0 ? number : 0;
 }
 
-assert(source.includes('// @version      0.3.2.0'));
+assert(source.includes('// @version      0.3.3.0'));
 
 assert(!source.includes('LANGUAGE_STORE_KEY'));
 assert(!source.includes('function languageFromChoice('));
@@ -99,4 +99,4 @@ assert.equal(partial.coveredBatches, 15);
 assert.equal(partial.remainingBatches, 5);
 assert.equal(partial.estimatedCost, 1650);
 
-console.log('HV Monster Manager 0.3.2.0 tests passed.');
+console.log('HV Monster Manager 0.3.3.0 tests passed.');

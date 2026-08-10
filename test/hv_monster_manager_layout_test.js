@@ -53,7 +53,7 @@ function fakeElt(tag, attrs = {}, children = []) {
 }
 
 assert(source.includes('// @name         HV Monster Manager'));
-assert(source.includes('// @version      0.3.2.0'));
+assert(source.includes('// @version      0.3.3.0'));
 for (const pair of [
   ['plannerTitle', 'PL Planner', 'PL计划器'],
   ['renameTitle', 'Monster Rename', '怪物重命名'],

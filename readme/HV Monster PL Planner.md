@@ -1,7 +1,7 @@
 # HV Monster Manager（怪物管理器）
 
 作者：KirisameReiko  
-当前版本：0.3.2.0
+当前版本：0.3.3.0
 
 ## 用途与适用页面
 
@@ -39,13 +39,13 @@
 
 “PL计划器”只包含“选择怪物”、“水晶需求、库存与缺口”、“升级方案”和“日志”，怪物项目显示 `#编号 名字 / PL 数值`，水晶栏目默认折叠（选择自定义收购价时自动展开）、日志默认展开；订单簿不能完整覆盖所需批数时，“完整预估消耗”会明确显示无法估算完整金额，只保留可见／所需批数，不再把局部花费显示成总价。“怪物重命名”面板按“选择怪物 → 重命名”排列，怪物项目只显示 `#编号 名字`，不显示 PL、缓存进度或日志栏目，只在重命名工具内显示当前操作状态。
 
-面板现在是 `#mainpane` 内的 `.hvut-ml-up` 子视图，默认宽度为 HV Utils 主面板的 100%。如需缩窄，可在用户样式或脚本 CSS 中设置：
+未安装 dokidoki 时，面板仍是 `#mainpane` 内的 `.hvut-ml-up` 子视图，默认宽度为 HV Utils 主面板的 100%。如需缩窄，可在用户样式或脚本 CSS 中设置：
 
 ```css
 :root { --hvmm-panel-width: 900px; }
 ```
 
-宽度不会超过 HV Utils 主面板。打开本附属面板时会隐藏 HV Utils Upgrader／PL Calculator；点击后二者也会先隐藏本面板，避免两个同层面板互相覆盖。
+安装 dokidoki 0.1.0.0 后，两个入口会随真实 `.hvut-ml-side` 进入顶部工具栏，管理器面板挂载到 `#dokidoki-addon-host` 并替换怪物列表工作区；关闭管理器或打开其他 HV Utils 工具会恢复列表。两种脚本加载顺序都会迁移同一面板节点，不重建语言、选择或计划状态；dokidoki 不可用时自动保留原布局。
 
 升级执行采用实时目标模式：每个 POST 最多升级 10 级，响应返回后立即解析实际属性等级和 12 种水晶库存，再重新计算所有怪物到目标 PL 的剩余方案。怪物已达到目标时不会继续执行旧增量；任一怪物高于目标、无法精确到达目标、响应没有进展或水晶不足时，整个批次立即停止。
 
@@ -87,6 +87,7 @@
 - `test/hv_monster_manager_cache_test.js`
 - `test/hv_monster_manager_compaction_test.js`
 - `test/hv_monster_manager_slim_refactor_test.js`
+- `test/dokidoki_manager_compat_test.js`
 - `test/hv_monster_manager_all_test.js`
 - `test/_hv_monster_manager_browser_fixture_server.js`
 
@@ -103,6 +104,7 @@ node "test\hv_monster_manager_selection_test.js"
 node "test\hv_monster_manager_cache_test.js"
 node "test\hv_monster_manager_compaction_test.js"
 node "test\hv_monster_manager_slim_refactor_test.js"
+node "test\dokidoki_manager_compat_test.js"
 node "test\hv_monster_manager_all_test.js"
 node --check "HV Monster Manager.js"
 node --check "test\_hv_monster_manager_browser_fixture_server.js"
@@ -110,9 +112,13 @@ node --check "test\_hv_monster_manager_browser_fixture_server.js"
 
 测试使用最小模拟响应或源码结构断言，不访问 Hentaiverse，也不消耗水晶。覆盖单次最多 10 级、响应后按实际状态重算、精确到达目标、超过目标停止、不可达停止、水晶库存解析、不完整响应拒绝、带编号三列 TXT 解析与导出模板、编号和当前名字交叉校验、随机名字去重、占用重试及服务器返回名字校验。`test/hv_monster_manager_selection_test.js` 单独校验普通点击、Ctrl 切换、Shift 可见顺序范围、Ctrl+Shift 追加、无锚点 Shift、Ctrl+A、空白清空、语义 ARIA 结构、旧按钮删除及两种重命名模式的选择过滤。
 
-`test/hv_monster_manager_cache_test.js` 独立校验结构化 GM 缓存的序列化／恢复、未知版本拒绝、页面 PL 与缓存 PL 不一致时失效、当前页面名字覆盖旧缓存、市场库存与订单簿完整性、计划器／重命名列表文案差异，以及刷新、升级、市场和改名成功路径写入缓存。`test/hv_monster_manager_hvutils_addon_test.js` 专门校验 0.3.2.0 的严格 HV Utils 依赖、无独立侧栏／overlay 回退、Monster Lab 列表与 Upgrader 等级／库存解析、保存目标拒绝、共享 `hvut_prices` 边界、300ms／4 连接策略及确认阶段无固定请求队列。`test/hv_monster_manager_layout_test.js` 校验双入口、面板功能隔离、栏目顺序与折叠、双面板语言同步、成对翻译表、自定义双语文件选择器、动态选择摘要重翻译和 HV Utils 子面板宽度。`test/hv_monster_manager_compaction_test.js` 与 `test/hv_monster_manager_slim_refactor_test.js` 校验配置驱动渲染、选择器单一路径、市场与升级安全分支合并以及已删除薄包装函数不会回归；`test/hv_monster_manager_all_test.js` 是完整测试入口。Chrome 夹具复刻 HV Utils 4.2.4 的宿主类与主题变量，并预置共享怪物缓存，用于无真实 POST 的入口、缓存恢复、双面板项目文案和双语视觉验证。`test/hv_monster_manager_v030_test.js` 的文件名为历史保留，当前预期输出为 `HV Monster Manager 0.3.2.0 tests passed.`。
+`test/hv_monster_manager_cache_test.js` 独立校验结构化 GM 缓存的序列化／恢复、未知版本拒绝、页面 PL 与缓存 PL 不一致时失效、当前页面名字覆盖旧缓存、市场库存与订单簿完整性、计划器／重命名列表文案差异，以及刷新、升级、市场和改名成功路径写入缓存。`test/hv_monster_manager_hvutils_addon_test.js` 校验严格 HV Utils 依赖、Monster Lab 列表与 Upgrader 等级／库存解析、共享价格边界及实时目标策略；`test/dokidoki_manager_compat_test.js` 校验共享 DOM 契约、两种加载顺序所需监听、工作区切换、窄屏表格滚动和原存储键保持。`test/hv_monster_manager_layout_test.js` 校验双入口、面板功能隔离、栏目顺序与折叠、双面板语言同步和双语文件选择器；`test/hv_monster_manager_compaction_test.js` 与 `test/hv_monster_manager_slim_refactor_test.js` 继续约束配置驱动渲染和代码规模，`test/hv_monster_manager_all_test.js` 是完整测试入口。Chrome 夹具不发送真实 POST。`test/hv_monster_manager_v030_test.js` 的文件名为历史保留，当前预期输出为 `HV Monster Manager 0.3.3.0 tests passed.`。
 
 ## 更新记录
+
+### 0.3.3.0
+
+新增与 dokidoki 0.1.0.0 的可选工作区兼容：入口随 HV Utils 真实工具栏迁移，计划器和重命名复用同一附属面板宿主，打开时替换怪物列表、关闭或切换其他工具时恢复列表；两种加载顺序均移动原节点而不重建状态，dokidoki 缺失时继续使用原 `#mainpane` 布局，并为窄屏表格增加局部滚动而不改变升级、采购、缓存、选择和重命名逻辑。
 
 ### 0.3.2.0
 

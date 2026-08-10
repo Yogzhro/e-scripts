@@ -15,8 +15,8 @@ function extractBlock(startText, endText) {
   return source.slice(start, end);
 }
 
-assert(source.includes('// @version      0.3.2.0'));
-assert(source.includes("const ADDON_VERSION = '0.3.2.0'"));
+assert(source.includes('// @version      0.3.3.0'));
+assert(source.includes("const ADDON_VERSION = '0.3.3.0'"));
 assert(lines <= 3700, `production script should stay <= 3700 lines with the shared cache, got ${lines}`);
 
 const stateBlock = extractBlock('  const state = {', '\n  };');

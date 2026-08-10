@@ -47,9 +47,9 @@ function loadFunction(name, dependencies = {}) {
   )(...Object.values(dependencies));
 }
 
-assert(source.includes('// @version      0.3.2.0'));
+assert(source.includes('// @version      0.3.3.0'));
 assert(source.includes('HV Utils 4.2.4 add-on'));
-assert(source.includes("const ADDON_VERSION = '0.3.2.0'"));
+assert(source.includes("const ADDON_VERSION = '0.3.3.0'"));
 assert(source.includes("const HVUT_REQUIRED_VERSION = '4.2.4'"));
 assert(source.includes('const HVUT_REQUEST_INTERVAL_MS = 300'));
 assert(source.includes('const HVUT_MAX_CONNECTIONS = 4'));

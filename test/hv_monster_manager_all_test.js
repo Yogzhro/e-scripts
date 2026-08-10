@@ -11,4 +11,5 @@
   'hv_monster_manager_layout_test.js',
   'hv_monster_manager_hvutils_addon_test.js',
   'hv_monster_manager_compaction_test.js',
+  'dokidoki_manager_compat_test.js',
 ].forEach((file) => require(`./${file}`));

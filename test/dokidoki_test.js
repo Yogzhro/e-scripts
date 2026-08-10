@@ -18,7 +18,7 @@ const {
 } = require(scriptPath);
 
 assert.match(source, /\/\/ @name\s+dokidoki/);
-assert.match(source, /\/\/ @version\s+0\.0\.2\.0/);
+assert.match(source, /\/\/ @version\s+0\.1\.0\.0/);
 assert.match(source, /\/\/ @author\s+Reina/);
 assert.match(source, /\/\/ @match\s+https:\/\/hentaiverse\.org\/\*/);
 assert.match(source, /\/\/ @match\s+https:\/\/alt\.hentaiverse\.org\/\*/);
@@ -28,7 +28,7 @@ assert(!/\b(?:fetch|XMLHttpRequest|GM_xmlhttpRequest)\s*\(/.test(source));
 assert(!source.includes('D:\\trans\\scripts'));
 assert(!source.includes('data:image/'));
 assert(!/HV Monster Portraits|hvmp-v0\.0\.1\.0|HV%20Monster%20Portraits/.test(source));
-assert(source.includes('e-scripts@dokidoki-v0.0.2.0/resource/dokidoki/dist'));
+assert(source.includes('e-scripts@dokidoki-v0.1.0.0/resource/dokidoki/dist'));
 
 const acceptedUrls = [
   ['https://hentaiverse.org/?s=Bazaar&ss=ml', 'list'],
@@ -177,9 +177,9 @@ assert.equal(outer.children.length, 0, 'unknown detail race must not retain a st
 assert.equal(detailWarnings.length, 2, 'detail asset failure and unknown race should each warn only once');
 
 const css = makeCss();
-assert.match(css, /height:80px!important/);
-assert.match(css, /width:52px;height:72px/);
-assert.match(css, /background-size:676px 72px/);
+assert.match(css, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+assert.match(css, /width:84px;height:126px/);
+assert.match(css, /background-size:1092px 126px/);
 assert.match(css, /@media \(min-width:1480px\)/);
 assert.match(css, /width:300px;height:450px/);
 assert.match(css, /@media \(max-width:1479px\)/);

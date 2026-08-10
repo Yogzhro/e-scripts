@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         HV Monster Manager
 // @namespace    https://hentaiverse.org/
-// @version      0.3.2.0
+// @version      0.3.3.0
 // @description  HV Utils 4.2.4 add-on for exact-target PL planning, crystal orders and monster renaming.
 // @author       KirisameReiko
 // @include      https://hentaiverse.org/?s=Bazaar&ss=ml
@@ -23,7 +23,7 @@
   if (!MONSTER_LAB_URLS.includes(location.href)) return;
 
   const HVUT_REQUIRED_VERSION = '4.2.4';
-  const ADDON_VERSION = '0.3.2.0';
+  const ADDON_VERSION = '0.3.3.0';
   const HVUT = Object.freeze({
     side: '.hvut-ml-side',
     upgraderButton: '#hvut-ml-up-button',
@@ -33,6 +33,7 @@
     mainpane: '#mainpane',
     slotRows: '#slot_pane > div.msl',
   });
+  const DOKIDOKI = Object.freeze({ shell: '#dokidoki-shell', addonHost: '#dokidoki-addon-host' });
   const STORE_KEY = 'hv_exact_pl_planner_v1';
   const CACHE_KEY = 'hv_monster_manager_cache_v1';
   const CACHE_VERSION = 1;
@@ -375,6 +376,9 @@
       ? { side, upgraderButton, mainpane }
       : null;
   }
+
+  function getDokidokiHost(doc = document) { const shell = doc.querySelector(DOKIDOKI.shell), addonHost = doc.querySelector(DOKIDOKI.addonHost); return shell && addonHost ? { shell, addonHost } : null; }
+  function setDokidokiView(visible, doc = document) { const shell = getDokidokiHost(doc)?.shell; if (shell) shell.dataset.dokidokiView = visible ? 'addon' : 'list'; }
 
   function waitForDom(read, timeoutMs, errorMessage) {
     const ready = read();
@@ -969,12 +973,30 @@
     hvutStale: false,
     lastPlan: null,
     panelMode: '',
+    panelElement: null,
     busy: false,
     selectionAnchorSlot: '',
     calculationTimer: null,
     renameMappingText: '',
     renameMappingFileName: '',
   };
+
+  function syncDokidokiHost() {
+    const panel = $('#hvmepp-panel') || runtime.panelElement, dokidoki = getDokidokiHost();
+    if (dokidoki) { if (panel && panel.parentNode !== dokidoki.addonHost) dokidoki.addonHost.appendChild(panel); setDokidokiView(Boolean(panel && !panel.classList.contains('hvut-none'))); return; }
+    const mainpane = $(HVUT.mainpane);
+    if (panel && mainpane && panel.parentElement?.id === 'dokidoki-addon-host') mainpane.appendChild(panel);
+  }
+
+  function setupDokidokiCompatibility() {
+    let queued = false;
+    const observer = new MutationObserver(() => { if (!queued) { queued = true; queueMicrotask(() => { queued = false; syncDokidokiHost(); }); } });
+    document.addEventListener('dokidoki:ready', syncDokidokiHost);
+    observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('pagehide', () => {
+      document.removeEventListener('dokidoki:ready', syncDokidokiHost); observer.disconnect();
+    }, { once: true });
+  }
 
   function saveState() {
     try {
@@ -3040,7 +3062,7 @@
       ]);
       table.appendChild(tr);
     });
-    content.appendChild(table);
+    content.appendChild(elt('div', { class: 'hvmepp-table-wrap' }, table));
 
     const estimateSummary = getPurchaseEstimateSummary(rows);
     if (estimateSummary) {
@@ -3102,7 +3124,7 @@
                 ])
               : elt('tr', {}, elt('td', { colspan: 5, text: t('noUpgradeNeeded') })));
           });
-          details.appendChild(table);
+          details.appendChild(elt('div', { class: 'hvmepp-table-wrap' }, table));
         }
         upgradeFragment.appendChild(details);
       });
@@ -3455,10 +3477,11 @@
       showHvutDependencyError(t('errorHvutRequired', { version: HVUT_REQUIRED_VERSION }));
       return;
     }
-    let panel = $('#hvmepp-panel');
+    let panel = $('#hvmepp-panel') || runtime.panelElement;
 
     if (panel?.dataset.mode === panelMode) {
       panel.classList.remove('hvut-none');
+      setDokidokiView(true);
       const easterEgg = $('#hvmepp-easter-egg');
       if (easterEgg) easterEgg.textContent = randomEasterEgg();
       refreshLocalizedText();
@@ -3468,6 +3491,7 @@
     clearTimeout(runtime.calculationTimer);
     runtime.calculationTimer = null;
     panel?.remove();
+    runtime.panelElement = null;
     runtime.panelMode = panelMode;
     $all(`${HVUT.upgraderPanel}, .hvut-ml-plc`).forEach((node) => node.classList.add('hvut-none'));
     panel = elt('div', {
@@ -3491,7 +3515,10 @@
       elt('span', { text: t(titleKey), dataset: { i18n: titleKey } }),
       elt('div', { class: 'hvmepp-title-actions' }, [easterEgg, closeButton]),
     ]));
-    closeButton.addEventListener('click', () => panel.classList.add('hvut-none'));
+    closeButton.addEventListener('click', () => {
+      panel.classList.add('hvut-none');
+      setDokidokiView(false);
+    });
 
     runtime.monsterList = parseHvutMonsterList();
     hydrateMonsterCache(runtime.monsterList);
@@ -3505,7 +3532,10 @@
       panel.append(...PLANNER_SECTION_CONFIGS.map(renderConfiguredSection));
       renderLogSummary();
     }
-    host.mainpane.appendChild(panel);
+    const panelHost = getDokidokiHost()?.addonHost || host.mainpane;
+    panelHost.appendChild(panel);
+    runtime.panelElement = panel;
+    setDokidokiView(true);
   }
 
   function createEntryButton(mode) {
@@ -3528,11 +3558,13 @@
     return btn;
   }
 
-  function bindHvutPanelHandoff(button) {
-    if (!button || button.dataset.hvmmAddonBound) return;
-    button.dataset.hvmmAddonBound = 'true';
-    button.addEventListener('click', () => {
-      $('#hvmepp-panel')?.classList.add('hvut-none');
+  function bindHvutPanelHandoff(side) {
+    if (side.dataset.hvmmAddonBound) return;
+    side.dataset.hvmmAddonBound = 'true';
+    side.addEventListener('click', (event) => {
+      if (event.target.closest('.hvmepp-entry')) return;
+      ($('#hvmepp-panel') || runtime.panelElement)?.classList.add('hvut-none');
+      setDokidokiView(false);
     }, true);
   }
 
@@ -3549,8 +3581,7 @@
     const plcButton = $all('input[type="button"], button', side).find((node) =>
       (node.value || node.textContent || '').trim() === 'Power Level Calculator'
     );
-    bindHvutPanelHandoff($(HVUT.upgraderButton));
-    bindHvutPanelHandoff(plcButton);
+    bindHvutPanelHandoff(side);
 
     if (plcButton) {
       plcButton.after(plannerButton, renameButton);
@@ -3632,13 +3663,15 @@
     .hvmepp-rename-issue{color:var(--color-font-warn);}
     .hvmepp-rename-status{min-height:1.25em;margin-top:5px;padding-top:5px;border-top:1px solid var(--color-border-light);}
     .hvmepp-table{width:100%;border-collapse:collapse;margin:4px 0;table-layout:fixed;font-size:9pt;}
+    .hvmepp-table-wrap{width:100%;overflow-x:auto;overflow-y:hidden;}
+    .hvmepp-table-wrap>.hvmepp-table{min-width:560px;}
     .hvmepp-table th,.hvmepp-table td{border:1px solid var(--color-border-light);padding:2px 3px;text-align:center;word-break:keep-all;}
     .hvmepp-table th{background:var(--color-bg-h1);}
     .hvmepp-table input{width:58px;text-align:right;box-sizing:border-box;}
     .hvmepp-total{margin:5px 0;padding:5px 6px;border:1px solid var(--color-border-light);background:var(--color-bg-light);line-height:1.4;font-weight:bold;}
     .hvmepp-monster-result{margin:5px 0;border:1px solid var(--color-border-light);background:var(--color-bg-alpha);}
     .hvmepp-monster-result > summary{padding:5px 6px;cursor:pointer;font-weight:bold;background:var(--color-bg-h1);}
-    .hvmepp-monster-result > .hvmepp-table,.hvmepp-monster-result > .hvmepp-alert{width:calc(100% - 8px);margin:4px;}
+    .hvmepp-monster-result > .hvmepp-table-wrap,.hvmepp-monster-result > .hvmepp-alert{width:calc(100% - 8px);margin:4px;}
     .hvmepp-crystal-table td:first-child,.hvmepp-crystal-table th:first-child{width:230px;text-align:left;}
     .hvmepp-crystal-table td:last-child,.hvmepp-crystal-table th:last-child{width:105px;}
     .hvmepp-crystal-table td:last-child input{width:96px;}
@@ -3647,10 +3680,14 @@
     .hvmepp-good{font-weight:bold;}
     .hvmepp-alert{margin:5px 0;padding:5px 6px;border:1px solid var(--color-font-warn);background:var(--color-warn-alpha);font-weight:bold;}
     .hvmepp-upgraded{background:var(--color-bg-light);}
+    #dokidoki-shell #hvmepp-panel{--color-bg-default:var(--dokidoki-surface);--color-bg-alpha:var(--dokidoki-surface-2);--color-bg-h1:#382335;--color-bg-light:#2d1c2a;--color-border-default:var(--dokidoki-gold);--color-border-light:var(--dokidoki-border);--color-border-alpha:#70405288;--color-font-default:var(--dokidoki-text);--color-font-light:var(--dokidoki-muted);--color-font-invalid:#e3a7bd;--color-font-warn:#ffb0b9;--color-warn-bg:#4b2430;--color-warn-alpha:#6b263d77;width:100%;max-width:none;height:calc(100vh - 175px);min-height:560px;margin:0;padding:12px;border:0;border-radius:8px;background:var(--dokidoki-surface);color:var(--dokidoki-text);scrollbar-color:var(--dokidoki-wine) #120e15;}#dokidoki-shell #hvmepp-panel button,#dokidoki-shell #hvmepp-panel input,#dokidoki-shell #hvmepp-panel select,#dokidoki-shell #hvmepp-panel textarea{border-color:var(--dokidoki-border);background:#120e15;color:var(--dokidoki-text);}
+    #dokidoki-shell #hvmepp-panel button:focus-visible,#dokidoki-shell #hvmepp-panel input:focus-visible,#dokidoki-shell #hvmepp-panel select:focus-visible,#dokidoki-shell #hvmepp-panel textarea:focus-visible{outline:2px solid #d3b27388;outline-offset:1px;}#dokidoki-shell #hvmepp-panel .hvmepp-table-wrap{max-width:100%;border-radius:5px;scrollbar-color:var(--dokidoki-wine) #120e15;}
     @media (max-width:900px){#hvmepp-panel{padding:6px;}
+    #dokidoki-shell #hvmepp-panel{height:auto;min-height:0;max-height:none;padding:7px;}
     .hvmepp-table input{width:50px;}
     }
   `);
 
+  setupDokidokiCompatibility();
   scheduleEntryButtons();
 })();

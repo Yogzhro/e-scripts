@@ -44,8 +44,8 @@ function gitFiles() {
   assert.equal(outputs.details.length, 13);
   const spriteMeta = await sharp(outputs.sprite).metadata();
   assert.equal(spriteMeta.format, 'webp');
-  assert.equal(spriteMeta.width, 1352);
-  assert.equal(spriteMeta.height, 144);
+  assert.equal(spriteMeta.width, 2184);
+  assert.equal(spriteMeta.height, 252);
   assert(fs.statSync(outputs.sprite).size <= 300 * 1024);
   for (const detail of outputs.details) {
     const metadata = await sharp(detail).metadata();
@@ -86,7 +86,7 @@ function gitFiles() {
 
   const realSprite = path.join(realDist, 'list-sprite.webp');
   const realSpriteMeta = await sharp(realSprite).metadata();
-  assert.deepEqual([realSpriteMeta.format, realSpriteMeta.width, realSpriteMeta.height], ['webp', 1352, 144]);
+  assert.deepEqual([realSpriteMeta.format, realSpriteMeta.width, realSpriteMeta.height], ['webp', 2184, 252]);
   assert(fs.statSync(realSprite).size <= 300 * 1024);
   const realDetailDist = path.join(realDist, 'detail');
   assert.deepEqual(webps(realDetailDist), expected, 'production detail dist must contain exactly 13 races');

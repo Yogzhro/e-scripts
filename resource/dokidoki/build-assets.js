@@ -45,18 +45,18 @@ async function buildAssets(assetRoot = __dirname) {
   const frames = [];
   for (const [index, key] of RACE_KEYS.entries()) {
     const input = path.join(listSource, `${key}.webp`);
-    const frame = await sharp(input).resize(104, 144, {
+    const frame = await sharp(input).resize(168, 252, {
       fit: 'contain',
       position: 'centre',
       background: '#171418',
     }).png().toBuffer();
-    frames.push({ input: frame, left: index * 104, top: 0 });
+    frames.push({ input: frame, left: index * 168, top: 0 });
   }
   const canvas = await sharp({
-    create: { width: 1352, height: 144, channels: 4, background: '#171418' },
+    create: { width: 2184, height: 252, channels: 4, background: '#171418' },
   }).composite(frames).png().toBuffer();
   const sprite = path.join(dist, 'list-sprite.webp');
-  fs.writeFileSync(sprite, await encodeWebp(sharp, canvas, 1352, 144, 300 * 1024));
+  fs.writeFileSync(sprite, await encodeWebp(sharp, canvas, 2184, 252, 300 * 1024));
 
   const details = [];
   for (const key of RACE_KEYS) {
