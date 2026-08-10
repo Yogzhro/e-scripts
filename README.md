@@ -6,5 +6,5 @@
 
 ## 脚本
 
-- [`dokidoki.js`](dokidoki.js) 0.1.0.0：以暗色哥特双列角色卡重构 Monster Lab 列表，提供可供 HV Utils 与怪物管理器复用的顶部工具栏和附属工作区，并继续显示 13 种族立绘；使用不可变标签 `dokidoki-v0.1.0.0`，说明见 [`readme/dokidoki.md`](readme/dokidoki.md)。
-- [`HV Monster Manager.js`](HV%20Monster%20Manager.js) 0.3.3.0：提供共享怪物选择、精确 PL 规划、实时目标升级、水晶采购和怪物重命名；可独立使用 HV Utils 原布局，也可无状态迁移到 dokidoki 工作区，说明见 [`readme/HV Monster PL Planner.md`](readme/HV%20Monster%20PL%20Planner.md)。
+- [`dokidoki.js`](dokidoki.js) 0.1.1.0：以暗色哥特双列角色卡重构 Monster Lab 列表，提供可供 HV Utils 与怪物管理器复用的顶部工具栏和附属工作区，并为属性页和技能页提供 360×540／280×420 响应式详情立绘；使用不可变标签 `dokidoki-v0.1.1.0`，说明见 [`readme/dokidoki.md`](readme/dokidoki.md)。
+- [`HV Monster Manager.js`](HV%20Monster%20Manager.js) 0.3.3.0：提供共享怪物选择、精确 PL 规划、实时目标升级、水晶采购和怪物重命名；可独立使用 HV Utils 原布局，也可无状态迁移到 dokidoki 工作区，说明见 [`readme/HV Monster Manager.md`](readme/HV%20Monster%20Manager.md)。

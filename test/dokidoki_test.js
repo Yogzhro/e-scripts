@@ -18,7 +18,7 @@ const {
 } = require(scriptPath);
 
 assert.match(source, /\/\/ @name\s+dokidoki/);
-assert.match(source, /\/\/ @version\s+0\.1\.0\.0/);
+assert.match(source, /\/\/ @version\s+0\.1\.1\.0/);
 assert.match(source, /\/\/ @author\s+Reina/);
 assert.match(source, /\/\/ @match\s+https:\/\/hentaiverse\.org\/\*/);
 assert.match(source, /\/\/ @match\s+https:\/\/alt\.hentaiverse\.org\/\*/);
@@ -28,7 +28,7 @@ assert(!/\b(?:fetch|XMLHttpRequest|GM_xmlhttpRequest)\s*\(/.test(source));
 assert(!source.includes('D:\\trans\\scripts'));
 assert(!source.includes('data:image/'));
 assert(!/HV Monster Portraits|hvmp-v0\.0\.1\.0|HV%20Monster%20Portraits/.test(source));
-assert(source.includes('e-scripts@dokidoki-v0.1.0.0/resource/dokidoki/dist'));
+assert(source.includes('e-scripts@dokidoki-v0.1.1.0/resource/dokidoki/dist'));
 
 const acceptedUrls = [
   ['https://hentaiverse.org/?s=Bazaar&ss=ml', 'list'],
@@ -149,6 +149,7 @@ const detailRoot = {
 };
 syncDetail(detailRoot);
 assert.equal(outer.children.length, 1);
+assert.equal(outer.dataset.dokidokiDetail, '1');
 assert.equal(outer.children[0].dataset.dokidokiRace, 'dragonkin');
 assert.match(outer.children[0].querySelector('img').src, /detail\/dragonkin\.webp$/);
 syncDetail(detailRoot);
@@ -180,10 +181,13 @@ const css = makeCss();
 assert.match(css, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
 assert.match(css, /width:84px;height:126px/);
 assert.match(css, /background-size:1092px 126px/);
-assert.match(css, /@media \(min-width:1480px\)/);
-assert.match(css, /width:300px;height:450px/);
-assert.match(css, /@media \(max-width:1479px\)/);
-assert.match(css, /width:260px;height:390px/);
+assert.match(css, /#dokidoki-toolbar \.hvut-ml-side\{[^}]*flex-direction:row!important/);
+assert.match(css, /#monster_outer\[data-dokidoki-detail="1"\]/);
+assert.match(css, /:not\(\.dokidoki-detail\):not\(#monster_head\)\{background-color:var\(--dokidoki-surface\)!important/);
+assert.match(css, /@media \(min-width:1320px\)/);
+assert.match(css, /width:360px;height:540px/);
+assert.match(css, /@media \(max-width:1319px\)/);
+assert.match(css, /width:280px;height:420px/);
 assert.equal((css.match(/data-dokidoki-race=/g) || []).length, 13);
 
 console.log('dokidoki tests passed.');

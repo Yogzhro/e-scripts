@@ -8,11 +8,11 @@ const workspace = path.resolve(__dirname, '..');
 const dokidoki = fs.readFileSync(path.join(workspace, 'dokidoki.js'), 'utf8');
 const manager = fs.readFileSync(path.join(workspace, 'HV Monster Manager.js'), 'utf8');
 
-assert.match(dokidoki, /\/\/ @version\s+0\.1\.0\.0/);
+assert.match(dokidoki, /\/\/ @version\s+0\.1\.1\.0/);
 for (const id of ['dokidoki-shell', 'dokidoki-toolbar', 'dokidoki-list-view', 'dokidoki-addon-host']) {
   assert(dokidoki.includes(id), `missing shared dokidoki host: ${id}`);
 }
-assert(dokidoki.includes("const UI_VERSION = '0.1.0.0'"));
+assert(dokidoki.includes("const UI_VERSION = '0.1.1.0'"));
 assert(dokidoki.includes("shell.dataset.dokidokiVersion = UI_VERSION"));
 assert(dokidoki.includes("shell.dataset.dokidokiView = 'list'"));
 assert(dokidoki.includes("new CustomEvent('dokidoki:ready')"));
@@ -31,7 +31,10 @@ assert(manager.includes("document.addEventListener('dokidoki:ready', syncDokidok
 assert(manager.includes("document.removeEventListener('dokidoki:ready', syncDokidokiHost)"));
 assert(manager.includes("shell.dataset.dokidokiView = visible ? 'addon' : 'list'"));
 assert(manager.includes('getDokidokiHost()?.addonHost || host.mainpane'));
+assert(manager.includes("document.addEventListener('click', (event) =>"));
+assert(manager.includes('event.target.closest?.(`${HVUT.side} input[type="button"], ${HVUT.side} button`)'));
 assert.match(manager, /#dokidoki-shell #hvmepp-panel\{/);
+assert.match(manager, /#dokidoki-shell #hvmepp-panel\{[^}]*position:relative!important;inset:auto!important;z-index:auto!important/);
 assert.match(manager, /#dokidoki-shell #hvmepp-panel \.hvmepp-table-wrap\{/);
 assert(!manager.includes('DOKIDOKI_STORE_KEY'));
 assert(manager.includes("const STORE_KEY = 'hv_exact_pl_planner_v1'"));

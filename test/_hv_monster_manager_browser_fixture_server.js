@@ -7,6 +7,10 @@ const path = require('node:path');
 const port = Number(process.argv[2] || 18765);
 const sourcePath = path.resolve(__dirname, '..', 'HV Monster Manager.js');
 const productionSource = fs.readFileSync(sourcePath, 'utf8');
+const dokidokiPath = path.resolve(__dirname, '..', 'resource', 'dokidoki', '.dev', 'dokidoki.dev.user.js');
+const dokidokiProduction = fs.readFileSync(dokidokiPath, 'utf8');
+const dokidokiSource = dokidokiProduction.replace('  else init();', '  else window.__DOKIDOKI__ = api;');
+if (dokidokiSource === dokidokiProduction) throw new Error('dokidoki fixture export replacement is stale');
 const fixtureSource = productionSource.replace(
   '  if (!MONSTER_LAB_URLS.includes(location.href)) return;',
   '  // Browser fixture: the production URL allowlist is covered by its dedicated unit test.'
@@ -32,7 +36,15 @@ const savedCache = {
   market: {},
 };
 
-function html() {
+function html(url) {
+  const withDokidoki = url.searchParams.get('dokidoki') === '1';
+  const dokidokiBoot = withDokidoki ? `<script src="/dokidoki.js"></script><script>
+  const dokidokiStyle=document.createElement('style');dokidokiStyle.id='dokidoki-style';dokidokiStyle.textContent=__DOKIDOKI__.makeCss();document.head.appendChild(dokidokiStyle);
+  __DOKIDOKI__.mountListUi(document);__DOKIDOKI__.syncList(document);__DOKIDOKI__.syncAddonPanels(document);document.dispatchEvent(new CustomEvent('dokidoki:ready'));
+  </script>` : '';
+  const managerScript = '<script src="/script.js"></script>';
+  const scripts = url.searchParams.get('order') === 'manager-first'
+    ? `${managerScript}${dokidokiBoot}` : `${dokidokiBoot}${managerScript}`;
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>HV Monster Manager Fixture</title>
 <style>
@@ -51,17 +63,23 @@ window.GM_getValue=(key,fallback)=>key==='hv_exact_pl_planner_v1'?JSON.stringify
 window.GM_setValue=(key,value)=>{ if(key==='hv_exact_pl_planner_v1') Object.assign(fixtureStore,JSON.parse(value)); else if(key==='hv_monster_manager_cache_v1') fixtureCache=value; };
 window.GM_addStyle=(css)=>{ const style=document.createElement('style'); style.textContent=css; document.head.appendChild(style); };
 localStorage.setItem('hvut_prices',JSON.stringify({'Crystal of Vigor':3,'Crystal of Finesse':3}));
-</script><script src="/script.js"></script></body></html>`;
+</script>${scripts}</body></html>`;
 }
 
 http.createServer((request, response) => {
-  if (request.url === '/script.js') {
+  const url = new URL(request.url, `http://127.0.0.1:${port}`);
+  if (url.pathname === '/script.js') {
     response.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
     response.end(fixtureSource);
     return;
   }
+  if (url.pathname === '/dokidoki.js') {
+    response.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
+    response.end(dokidokiSource);
+    return;
+  }
   response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-  response.end(html());
+  response.end(html(url));
 }).listen(port, '127.0.0.1', () => {
   console.log(`fixture listening on http://127.0.0.1:${port}/`);
 });

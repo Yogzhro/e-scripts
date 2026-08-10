@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         dokidoki
 // @namespace    https://hentaiverse.org/
-// @version      0.1.0.0
+// @version      0.1.1.0
 // @description  Rebuilds the HentaiVerse Monster Lab as a portrait-focused gothic interface.
 // @author       Reina
 // @match        https://hentaiverse.org/*
@@ -13,7 +13,7 @@
 (() => {
   'use strict';
 
-  const UI_VERSION = '0.1.0.0';
+  const UI_VERSION = '0.1.1.0';
   const RACES = [
     ['arthropod', 'Arthropod', '节肢动物'],
     ['avion', 'Avion', '鸟类'],
@@ -29,7 +29,7 @@
     ['sprite', 'Sprite', '妖精'],
     ['undead', 'Undead', '亡灵'],
   ];
-  const ASSET_BASE = 'https://cdn.jsdelivr.net/gh/Yogzhro/e-scripts@dokidoki-v0.1.0.0/resource/dokidoki/dist';
+  const ASSET_BASE = 'https://cdn.jsdelivr.net/gh/Yogzhro/e-scripts@dokidoki-v0.1.1.0/resource/dokidoki/dist';
   const DEV_ASSETS = null;
   const mountedLists = new WeakMap();
   const warned = new Set();
@@ -168,15 +168,19 @@
     const outer = root.querySelector('#monster_outer');
     const head = root.querySelector('#monster_head');
     if (!outer || !head) return;
+    outer.dataset.dokidokiDetail = '1';
+    root.documentElement?.classList.add('dokidoki-detail-active');
     const headText = String(head.textContent || '').trim();
     const key = [...head.children].reverse().map(node => raceKey(node.textContent)).find(Boolean)
       || raceKey(headText);
     let panel = outer.querySelector('.dokidoki-detail');
     if (!key) {
+      outer.dataset.dokidokiNoPortrait = '1';
       panel?.remove();
       if (headText) warnOnce(`detail-race:${headText}`, `Unknown race in monster header: ${headText}`);
       return;
     }
+    delete outer.dataset.dokidokiNoPortrait;
     if (!panel) {
       panel = root.createElement('aside');
       panel.className = 'dokidoki-detail';
@@ -212,8 +216,8 @@
 #dokidoki-shell{box-sizing:border-box;width:100%;padding:12px;border:1px solid var(--dokidoki-border);border-radius:12px;background:#0e0b12e8;box-shadow:0 18px 55px #0009;font:12px/1.35 Arial,sans-serif;text-align:left}
 #dokidoki-toolbar{position:sticky;top:4px;z-index:8;margin-bottom:10px;padding:8px;border:1px solid var(--dokidoki-border);border-radius:9px;background:#18121df2;backdrop-filter:blur(8px)}
 #dokidoki-toolbar:empty{display:none}
-#dokidoki-toolbar .hvut-ml-side{position:static!important;inset:auto!important;display:flex!important;flex-wrap:wrap;align-items:stretch;gap:6px;width:100%!important;height:auto!important;margin:0!important;padding:0!important;background:none!important;border:0!important}
-#dokidoki-toolbar .hvut-ml-side input,#dokidoki-toolbar .hvut-ml-side button{box-sizing:border-box;min-height:34px!important;margin:0!important;padding:5px 10px!important;border:1px solid var(--dokidoki-border)!important;border-radius:6px;background:linear-gradient(#312131,#1c141f)!important;color:var(--dokidoki-text)!important;font:600 11px/1.15 Arial,sans-serif!important;white-space:normal;cursor:pointer}
+#dokidoki-toolbar .hvut-ml-side{position:static!important;inset:auto!important;display:flex!important;flex-direction:row!important;flex-wrap:wrap;align-items:stretch;gap:6px;width:100%!important;height:auto!important;margin:0!important;padding:0!important;background:none!important;border:0!important}
+#dokidoki-toolbar .hvut-ml-side input,#dokidoki-toolbar .hvut-ml-side button{box-sizing:border-box;flex:1 1 140px;width:auto!important;max-width:220px;min-height:34px!important;margin:0!important;padding:5px 10px!important;border:1px solid var(--dokidoki-border)!important;border-radius:6px;background:linear-gradient(#312131,#1c141f)!important;color:var(--dokidoki-text)!important;font:600 11px/1.15 Arial,sans-serif!important;white-space:normal;cursor:pointer}
 #dokidoki-toolbar .hvut-ml-side input:hover,#dokidoki-toolbar .hvut-ml-side button:hover,#dokidoki-toolbar .hvut-ml-side input:focus-visible,#dokidoki-toolbar .hvut-ml-side button:focus-visible{border-color:var(--dokidoki-gold)!important;outline:2px solid #d3b27355;outline-offset:1px}
 #dokidoki-shell[data-dokidoki-view="addon"] #dokidoki-list-view,#dokidoki-shell[data-dokidoki-view="list"] #dokidoki-addon-host{display:none}
 #dokidoki-addon-host{min-height:560px;border-radius:8px;background:var(--dokidoki-surface);overflow:hidden}
@@ -240,14 +244,24 @@
 #monster_actions{position:relative!important;left:auto!important;top:auto!important;display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;width:100%!important;height:auto!important;margin:12px 0 0!important}
 #monster_actions>div{box-sizing:border-box!important;width:auto!important;min-height:86px;height:auto!important;margin:0!important;padding:12px!important;border:1px solid var(--dokidoki-border);border-radius:9px;background:linear-gradient(#211724,#151017);color:var(--dokidoki-text)!important}
 ${positions}
-.dokidoki-detail{overflow:hidden;box-sizing:border-box;border:1px solid var(--color-border-default,#5f5145);background:#171418;box-shadow:0 3px 14px #0008;z-index:2}
+.dokidoki-detail-active body{background:radial-gradient(circle at 72% 0,#2b1726 0,#0e0b12 48%,#09070b 100%) fixed!important;color:var(--dokidoki-text)!important}
+.dokidoki-detail-active #mainpane{width:min(1440px,calc(100vw - 24px))!important;max-width:none!important;margin-inline:auto!important;overflow:visible!important}
+#monster_outer[data-dokidoki-detail="1"]{position:relative!important;display:grid!important;gap:14px;width:100%!important;height:auto!important;margin:0!important;padding:14px!important;border:1px solid var(--dokidoki-border);border-radius:12px;background:#0e0b12e8;box-shadow:0 18px 55px #0009;color:var(--dokidoki-text)!important;font:12px/1.35 Arial,sans-serif;text-align:left;box-sizing:border-box}
+#monster_outer[data-dokidoki-detail="1"]>:not(.dokidoki-detail){grid-column:1;min-width:0;box-sizing:border-box}
+#monster_outer[data-dokidoki-detail="1"]>:not(.dokidoki-detail):not(#monster_head){background-color:var(--dokidoki-surface)!important;color:var(--dokidoki-text)!important}
+#monster_outer[data-dokidoki-detail="1"] #monster_head{box-sizing:border-box!important;width:100%!important;height:auto!important;min-height:52px;margin:0!important;padding:10px 14px!important;border:1px solid var(--dokidoki-border);border-radius:9px;background:linear-gradient(110deg,#382335,#19131d);color:var(--dokidoki-text)!important;font-size:14px;font-weight:700}
+#monster_outer[data-dokidoki-detail="1"] h1,#monster_outer[data-dokidoki-detail="1"] h2,#monster_outer[data-dokidoki-detail="1"] h3,#monster_outer[data-dokidoki-detail="1"] p,#monster_outer[data-dokidoki-detail="1"] label{color:inherit!important}
+#monster_outer[data-dokidoki-detail="1"] input,#monster_outer[data-dokidoki-detail="1"] select,#monster_outer[data-dokidoki-detail="1"] button,#monster_outer[data-dokidoki-detail="1"] textarea{border-color:var(--dokidoki-border)!important;background:#120e15!important;color:var(--dokidoki-text)!important}
+#monster_outer[data-dokidoki-detail="1"] input:focus-visible,#monster_outer[data-dokidoki-detail="1"] select:focus-visible,#monster_outer[data-dokidoki-detail="1"] button:focus-visible,#monster_outer[data-dokidoki-detail="1"] textarea:focus-visible{outline:2px solid #d3b27388;outline-offset:1px}
+#monster_outer[data-dokidoki-detail="1"] table,#monster_outer[data-dokidoki-detail="1"]>div:not(#monster_head),#monster_outer[data-dokidoki-detail="1"]>form{max-width:100%;border-color:var(--dokidoki-border)!important;background-color:var(--dokidoki-surface)!important;color:var(--dokidoki-text)!important}
+.dokidoki-detail{overflow:hidden;box-sizing:border-box;border:1px solid var(--dokidoki-gold);border-radius:12px;background:radial-gradient(circle at 50% 18%,#6e315055,#171018 58%,#09070b);box-shadow:0 14px 38px #000b,inset 0 0 0 1px #d3b27344;z-index:2}
 .dokidoki-detail>img{display:block;width:100%;height:100%;object-fit:cover}
 .dokidoki-detail[data-dokidoki-error="1"]>img{visibility:hidden}
 @media (min-width:1320px){#slot_pane{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:1319px){#slot_pane>div.msl{grid-template-columns:76px minmax(120px,1.4fr) minmax(70px,.6fr) minmax(90px,.9fr);min-height:112px!important;padding:6px 9px!important}#slot_pane>div.msl>div:nth-child(1)[data-dokidoki-race]::after{flex-basis:96px;width:64px;height:96px;background-position:var(--dokidoki-x-small) 0;background-size:832px 96px}}
 @media (max-width:899px){.dokidoki-active #mainpane{width:calc(100vw - 10px)!important}#dokidoki-shell{padding:7px;border-radius:8px}#dokidoki-toolbar{position:relative;top:auto;padding:6px}.hvut-ml-sort{top:0}#slot_pane{max-height:none;min-height:0;padding-inline:0!important}#slot_pane>div.msl{grid-template-columns:72px minmax(0,1fr) 68px;grid-template-rows:repeat(5,minmax(22px,auto));grid-template-areas:"portrait name pl" "portrait race stats" "portrait gains gifts" "portrait morale morale" "portrait hunger hunger";gap:2px 6px}#monster_actions{grid-template-columns:1fr}}
-@media (min-width:1480px){.dokidoki-detail{position:absolute;top:48px;left:calc(100% + 16px);width:300px;height:450px}}
-@media (max-width:1479px){#monster_outer{height:auto!important}.dokidoki-detail{position:relative;clear:both;width:260px;height:390px;margin:20px auto 0}}
+@media (min-width:1320px){#monster_outer[data-dokidoki-detail="1"]{grid-template-columns:minmax(0,1fr) 360px;align-items:start}#monster_outer[data-dokidoki-no-portrait="1"]{grid-template-columns:1fr}.dokidoki-detail{position:sticky;top:12px;grid-column:2;grid-row:1/span 999;align-self:start;width:360px;height:540px}}
+@media (max-width:1319px){#monster_outer[data-dokidoki-detail="1"]{grid-template-columns:minmax(0,1fr);padding:9px}.dokidoki-detail{position:relative;grid-column:1;grid-row:auto;justify-self:center;order:999;width:280px;height:420px;margin:6px auto}}
 `;
   }
 
@@ -271,9 +285,11 @@ ${positions}
       style.textContent = makeCss();
       document.head.appendChild(style);
     }
-    const sprite = new Image();
-    sprite.onerror = () => warnOnce('asset:list', 'Portrait sprite failed to load');
-    sprite.src = listAssetUrl();
+    if (type === 'list') {
+      const sprite = new Image();
+      sprite.onerror = () => warnOnce('asset:list', 'Portrait sprite failed to load');
+      sprite.src = listAssetUrl();
+    }
     apply(document, location.href);
     if (type === 'list' && document.querySelector('#dokidoki-shell')) {
       document.dispatchEvent(new CustomEvent('dokidoki:ready'));

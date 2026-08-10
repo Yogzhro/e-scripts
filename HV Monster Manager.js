@@ -3558,11 +3558,12 @@
     return btn;
   }
 
-  function bindHvutPanelHandoff(side) {
-    if (side.dataset.hvmmAddonBound) return;
-    side.dataset.hvmmAddonBound = 'true';
-    side.addEventListener('click', (event) => {
-      if (event.target.closest('.hvmepp-entry')) return;
+  function bindHvutPanelHandoff() {
+    if (document.documentElement.dataset.hvmmAddonBound) return;
+    document.documentElement.dataset.hvmmAddonBound = 'true';
+    document.addEventListener('click', (event) => {
+      const control = event.target.closest?.(`${HVUT.side} input[type="button"], ${HVUT.side} button`);
+      if (!control || control.closest('.hvmepp-entry')) return;
       ($('#hvmepp-panel') || runtime.panelElement)?.classList.add('hvut-none');
       setDokidokiView(false);
     }, true);
@@ -3581,7 +3582,7 @@
     const plcButton = $all('input[type="button"], button', side).find((node) =>
       (node.value || node.textContent || '').trim() === 'Power Level Calculator'
     );
-    bindHvutPanelHandoff(side);
+    bindHvutPanelHandoff();
 
     if (plcButton) {
       plcButton.after(plannerButton, renameButton);
@@ -3680,7 +3681,7 @@
     .hvmepp-good{font-weight:bold;}
     .hvmepp-alert{margin:5px 0;padding:5px 6px;border:1px solid var(--color-font-warn);background:var(--color-warn-alpha);font-weight:bold;}
     .hvmepp-upgraded{background:var(--color-bg-light);}
-    #dokidoki-shell #hvmepp-panel{--color-bg-default:var(--dokidoki-surface);--color-bg-alpha:var(--dokidoki-surface-2);--color-bg-h1:#382335;--color-bg-light:#2d1c2a;--color-border-default:var(--dokidoki-gold);--color-border-light:var(--dokidoki-border);--color-border-alpha:#70405288;--color-font-default:var(--dokidoki-text);--color-font-light:var(--dokidoki-muted);--color-font-invalid:#e3a7bd;--color-font-warn:#ffb0b9;--color-warn-bg:#4b2430;--color-warn-alpha:#6b263d77;width:100%;max-width:none;height:calc(100vh - 175px);min-height:560px;margin:0;padding:12px;border:0;border-radius:8px;background:var(--dokidoki-surface);color:var(--dokidoki-text);scrollbar-color:var(--dokidoki-wine) #120e15;}#dokidoki-shell #hvmepp-panel button,#dokidoki-shell #hvmepp-panel input,#dokidoki-shell #hvmepp-panel select,#dokidoki-shell #hvmepp-panel textarea{border-color:var(--dokidoki-border);background:#120e15;color:var(--dokidoki-text);}
+    #dokidoki-shell #hvmepp-panel{--color-bg-default:var(--dokidoki-surface);--color-bg-alpha:var(--dokidoki-surface-2);--color-bg-h1:#382335;--color-bg-light:#2d1c2a;--color-border-default:var(--dokidoki-gold);--color-border-light:var(--dokidoki-border);--color-border-alpha:#70405288;--color-font-default:var(--dokidoki-text);--color-font-light:var(--dokidoki-muted);--color-font-invalid:#e3a7bd;--color-font-warn:#ffb0b9;--color-warn-bg:#4b2430;--color-warn-alpha:#6b263d77;position:relative!important;inset:auto!important;z-index:auto!important;width:100%;max-width:none;height:calc(100vh - 175px);min-height:560px;margin:0;padding:12px;border:0;border-radius:8px;background:var(--dokidoki-surface);color:var(--dokidoki-text);scrollbar-color:var(--dokidoki-wine) #120e15;}#dokidoki-shell #hvmepp-panel button,#dokidoki-shell #hvmepp-panel input,#dokidoki-shell #hvmepp-panel select,#dokidoki-shell #hvmepp-panel textarea{border-color:var(--dokidoki-border);background:#120e15;color:var(--dokidoki-text);}
     #dokidoki-shell #hvmepp-panel button:focus-visible,#dokidoki-shell #hvmepp-panel input:focus-visible,#dokidoki-shell #hvmepp-panel select:focus-visible,#dokidoki-shell #hvmepp-panel textarea:focus-visible{outline:2px solid #d3b27388;outline-offset:1px;}#dokidoki-shell #hvmepp-panel .hvmepp-table-wrap{max-width:100%;border-radius:5px;scrollbar-color:var(--dokidoki-wine) #120e15;}
     @media (max-width:900px){#hvmepp-panel{padding:6px;}
     #dokidoki-shell #hvmepp-panel{height:auto;min-height:0;max-height:none;padding:7px;}
