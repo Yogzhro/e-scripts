@@ -1,8 +1,9 @@
 /reference/
 /.agents/
-/resource/HV Monster Portraits/.dev/
+/resource/dokidoki/.dev/
 /node_modules/
 /.cache/
 /coverage/
 /tmp/
 *.log
+prompt.txt

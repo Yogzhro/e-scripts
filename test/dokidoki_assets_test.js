@@ -7,7 +7,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const workspace = path.resolve(__dirname, '..');
-const builderPath = path.join(workspace, 'resource', 'HV Monster Portraits', 'build-assets.js');
+const builderPath = path.join(workspace, 'resource', 'dokidoki', 'build-assets.js');
 assert(fs.existsSync(builderPath), 'missing portrait asset builder');
 const { RACE_KEYS, loadSharp, buildAssets, buildDevCopy } = require(builderPath);
 
@@ -15,13 +15,13 @@ function gitFiles() {
   return execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
     cwd: workspace,
     encoding: 'utf8',
-  }).split('\0').filter(Boolean);
+  }).split('\0').filter(file => file && fs.existsSync(path.join(workspace, file)));
 }
 
 (async () => {
   const sharp = loadSharp();
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'hvmp-assets-'));
-  const assetRoot = path.join(tempRoot, 'resource', 'HV Monster Portraits');
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dokidoki-assets-'));
+  const assetRoot = path.join(tempRoot, 'resource', 'dokidoki');
   const listSource = path.join(assetRoot, 'source', 'list');
   const detailSource = path.join(assetRoot, 'source', 'detail');
   fs.mkdirSync(listSource, { recursive: true });
@@ -55,19 +55,19 @@ function gitFiles() {
     assert(fs.statSync(detail).size <= 220 * 1024);
   }
 
-  const production = fs.readFileSync(path.join(workspace, 'HV Monster Portraits.js'), 'utf8');
+  const production = fs.readFileSync(path.join(workspace, 'dokidoki.js'), 'utf8');
   const localWorkspace = path.join(tempRoot, 'workspace');
   fs.mkdirSync(localWorkspace, { recursive: true });
-  const localProduction = path.join(localWorkspace, 'HV Monster Portraits.js');
+  const localProduction = path.join(localWorkspace, 'dokidoki.js');
   fs.writeFileSync(localProduction, production);
   const devPath = await buildDevCopy(assetRoot, localProduction);
   const devSource = fs.readFileSync(devPath, 'utf8');
-  assert(devSource.includes('// @name         HV Monster Portraits (Local Dev)'));
+  assert(devSource.includes('// @name         dokidoki (Local Dev)'));
   assert(devSource.includes('data:image/webp;base64,'));
   assert(!devSource.includes('D:\\trans\\scripts'));
   assert(devSource.length > production.length);
 
-  const realRoot = path.join(workspace, 'resource', 'HV Monster Portraits');
+  const realRoot = path.join(workspace, 'resource', 'dokidoki');
   const realList = path.join(realRoot, 'source', 'list');
   const realDetail = path.join(realRoot, 'source', 'detail');
   const realDist = path.join(realRoot, 'dist');
@@ -98,7 +98,12 @@ function gitFiles() {
   }
 
   const repositoryFiles = gitFiles();
-  assert(!repositoryFiles.some(file => file.replaceAll('\\', '/').includes('resource/HV Monster Portraits/.dev/')),
+  const normalizedFiles = repositoryFiles.map(file => file.replaceAll('\\', '/'));
+  assert(!normalizedFiles.some(file => /(^|\/)(?:reference|\.agents)(?:\/|$)|(^|\/)prompt\.txt$/i.test(file)),
+    'private development paths must not be tracked');
+  assert(!normalizedFiles.some(file => /HV Monster Portraits|hv_monster_portraits/i.test(file)),
+    'old project filenames must be removed');
+  assert(!repositoryFiles.some(file => file.replaceAll('\\', '/').includes('resource/dokidoki/.dev/')),
     'local development outputs must remain ignored');
   const sizes = repositoryFiles.map(file => ({ file, size: fs.statSync(path.join(workspace, file)).size }));
   const repositorySize = sizes.reduce((sum, item) => sum + item.size, 0);
@@ -111,7 +116,7 @@ function gitFiles() {
   } catch (error) {
     if (error.code !== 'EPERM') throw error;
   }
-  console.log('HV Monster Portraits asset tests passed.');
+  console.log('dokidoki asset tests passed.');
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

@@ -4,8 +4,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const scriptPath = path.resolve(__dirname, '..', 'HV Monster Portraits.js');
-assert(fs.existsSync(scriptPath), 'missing HV Monster Portraits.js');
+const scriptPath = path.resolve(__dirname, '..', 'dokidoki.js');
+assert(fs.existsSync(scriptPath), 'missing dokidoki.js');
 const source = fs.readFileSync(scriptPath, 'utf8');
 const {
   RACES,
@@ -17,8 +17,8 @@ const {
   assetUrl,
 } = require(scriptPath);
 
-assert.match(source, /\/\/ @name\s+HV Monster Portraits/);
-assert.match(source, /\/\/ @version\s+0\.0\.1\.0/);
+assert.match(source, /\/\/ @name\s+dokidoki/);
+assert.match(source, /\/\/ @version\s+0\.0\.2\.0/);
 assert.match(source, /\/\/ @author\s+Reina/);
 assert.match(source, /\/\/ @match\s+https:\/\/hentaiverse\.org\/\*/);
 assert.match(source, /\/\/ @match\s+https:\/\/alt\.hentaiverse\.org\/\*/);
@@ -27,6 +27,8 @@ assert.equal((source.match(/new MutationObserver/g) || []).length, 1);
 assert(!/\b(?:fetch|XMLHttpRequest|GM_xmlhttpRequest)\s*\(/.test(source));
 assert(!source.includes('D:\\trans\\scripts'));
 assert(!source.includes('data:image/'));
+assert(!/HV Monster Portraits|hvmp-v0\.0\.1\.0|HV%20Monster%20Portraits/.test(source));
+assert(source.includes('e-scripts@dokidoki-v0.0.2.0/resource/dokidoki/dist'));
 
 const acceptedUrls = [
   ['https://hentaiverse.org/?s=Bazaar&ss=ml', 'list'],
@@ -98,15 +100,15 @@ const originalWarn = console.warn;
 console.warn = (...parts) => warnings.push(parts.join(' '));
 try {
   syncList(listRoot);
-  assert.equal(nativeRow.children[0].dataset.hvmpRace, 'dragonkin');
-  assert.equal(hvUtilsRow.children[0].dataset.hvmpRace, 'mechanoid');
-  assert.equal('hvmpRace' in unknownRow.children[0].dataset, false);
+  assert.equal(nativeRow.children[0].dataset.dokidokiRace, 'dragonkin');
+  assert.equal(hvUtilsRow.children[0].dataset.dokidokiRace, 'mechanoid');
+  assert.equal('dokidokiRace' in unknownRow.children[0].dataset, false);
   assert.deepEqual([nativeRow, hvUtilsRow, unknownRow].map(item => item.children.length), counts);
   syncList(listRoot);
   assert.deepEqual([nativeRow, hvUtilsRow, unknownRow].map(item => item.children.length), counts);
   nativeRow.children[3].textContent = '龙类';
   syncList(listRoot);
-  assert.equal(nativeRow.children[0].dataset.hvmpRace, 'dragonkin');
+  assert.equal(nativeRow.children[0].dataset.dokidokiRace, 'dragonkin');
 } finally {
   console.warn = originalWarn;
 }
@@ -122,7 +124,7 @@ function element(tagName) {
     appendChild(child) { this.children.push(child); child.parentElement = this; return child; },
     setAttribute(name, value) { this.attributes[name] = String(value); },
     querySelector(selector) {
-      if (selector === '.hvmp-detail') return this.children.find(child => child.className === 'hvmp-detail') || null;
+      if (selector === '.dokidoki-detail') return this.children.find(child => child.className === 'dokidoki-detail') || null;
       if (selector === 'img') return this.children.find(child => child.tagName === 'img') || null;
       return null;
     },
@@ -147,14 +149,14 @@ const detailRoot = {
 };
 syncDetail(detailRoot);
 assert.equal(outer.children.length, 1);
-assert.equal(outer.children[0].dataset.hvmpRace, 'dragonkin');
+assert.equal(outer.children[0].dataset.dokidokiRace, 'dragonkin');
 assert.match(outer.children[0].querySelector('img').src, /detail\/dragonkin\.webp$/);
 syncDetail(detailRoot);
 assert.equal(outer.children.length, 1, 'detail sync must be idempotent');
 head.children[3].textContent = 'Humanoid';
 head.textContent = '1 Monster Level 750 Humanoid';
 syncDetail(detailRoot);
-assert.equal(outer.children[0].dataset.hvmpRace, 'humanoid');
+assert.equal(outer.children[0].dataset.dokidokiRace, 'humanoid');
 const detailImage = outer.children[0].querySelector('img');
 assert.match(detailImage.src, /detail\/humanoid\.webp$/);
 
@@ -163,7 +165,7 @@ console.warn = (...parts) => detailWarnings.push(parts.join(' '));
 try {
   detailImage.onerror();
   detailImage.onerror();
-  assert.equal(outer.children[0].dataset.hvmpError, '1');
+  assert.equal(outer.children[0].dataset.dokidokiError, '1');
   head.children[3].textContent = 'Unknown Detail Race';
   head.textContent = '1 Monster Level 750 Unknown Detail Race';
   syncDetail(detailRoot);
@@ -182,6 +184,6 @@ assert.match(css, /@media \(min-width:1480px\)/);
 assert.match(css, /width:300px;height:450px/);
 assert.match(css, /@media \(max-width:1479px\)/);
 assert.match(css, /width:260px;height:390px/);
-assert.equal((css.match(/data-hvmp-race=/g) || []).length, 13);
+assert.equal((css.match(/data-dokidoki-race=/g) || []).length, 13);
 
-console.log('HV Monster Portraits tests passed.');
+console.log('dokidoki tests passed.');

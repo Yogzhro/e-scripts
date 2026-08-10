@@ -1,8 +1,8 @@
-# HV Monster Portraits
+# dokidoki
 
-- 当前版本：0.0.1.0
-- 作者：Reina
-- 状态：已发布（`hvmp-v0.0.1.0`）
+- 当前版本：0.0.2.0
+- 作者：reina
+- 状态：已发布（`dokidoki-v0.0.2.0`）
 
 ## 用途与适用页面
 
@@ -25,9 +25,9 @@
 
 ## 权限与安装
 
-正式脚本使用 `@grant none`，仅匹配主站与 alt 站。仓库根目录的 `HV Monster Portraits.js` 使用固定版本的 jsDelivr 地址；`hvmp-v0.0.1.0` 标签及全部 CDN 文件已经验证，可从 [固定标签脚本](https://raw.githubusercontent.com/Yogzhro/e-scripts/hvmp-v0.0.1.0/HV%20Monster%20Portraits.js) 安装。
+正式脚本使用 `@grant none`，仅匹配主站与 alt 站。仓库根目录的 `dokidoki.js` 使用固定版本的 jsDelivr 地址；可从 [固定标签脚本](https://raw.githubusercontent.com/Yogzhro/e-scripts/dokidoki-v0.0.2.0/dokidoki.js) 安装。
 
-开发资源位于 `resource/HV Monster Portraits/`。`build-assets.js` 使用 Sharp 将 13 张列表母图合成为 1352×144 精灵图，将 13 张详情母图输出为 600×900 WebP，并可生成包含本地 data URI 的 `.dev/HV Monster Portraits.dev.user.js`；该开发副本不会被 Git 跟踪。
+开发资源位于 `resource/dokidoki/`。`build-assets.js` 使用 Sharp 将 13 张列表母图合成为 1352×144 精灵图，将 13 张详情母图输出为 600×900 WebP，并可生成包含本地 data URI 的 `.dev/dokidoki.dev.user.js`；该开发副本不会被 Git 跟踪。
 
 ## 资源状态与已知限制
 
@@ -39,30 +39,38 @@
 
 ## 测试
 
-### `test/hv_monster_portraits_test.js`
+### `test/dokidoki_test.js`
 
 运行命令：
 
 ```powershell
-node .\test\hv_monster_portraits_test.js
+node .\test\dokidoki_test.js
 ```
 
-测试严格 URL 匹配、13 组中英种族映射、原生 6 列与 HV Utils 9 列夹具、直接子节点保持、重复同步、详情画像更新、CSS 尺寸和响应式断点。预期输出为 `HV Monster Portraits tests passed.`。
+测试严格 URL 匹配、13 组中英种族映射、原生 6 列与 HV Utils 4.2.4 九列夹具、直接子节点保持、重复同步、详情画像更新、CSS 尺寸、响应式断点、新项目标识和固定 CDN 路径。预期输出为 `dokidoki tests passed.`。
 
-### `test/hv_monster_portraits_assets_test.js`
+### `test/dokidoki_assets_test.js`
 
 运行命令：
 
 ```powershell
-& '<包含 Sharp 的 Node 路径>' .\test\hv_monster_portraits_assets_test.js
+& '<包含 Sharp 的 Node 路径>' .\test\dokidoki_assets_test.js
 ```
 
-测试在系统临时目录生成 13 组纯色 WebP 夹具，并验证实际 26 张母图、1352×144 精灵图、13 张 600×900 详情图、WebP 格式、压缩上限、仓库体积和 data-URI 开发副本忽略规则。预期输出为 `HV Monster Portraits asset tests passed.`，测试不使用 Hentaiverse 数据。
+测试在系统临时目录生成 13 组纯色 WebP 夹具，并验证实际 26 张母图、1352×144 精灵图、13 张 600×900 详情图、WebP 格式、压缩上限、仓库体积和 data-URI 开发副本忽略规则。预期输出为 `dokidoki asset tests passed.`，测试不使用 Hentaiverse 数据。
+
+### `test/_dokidoki_browser_fixture_server.js`
+
+该本地服务器加载被忽略的 data-URI 开发副本，提供原生六列、HV Utils 4.2.4 九列、英文、中文、排序和详情页夹具，用于 Chrome 可见布局与幂等刷新验证。它只监听 `127.0.0.1`，不会连接或修改 Hentaiverse 数据。
+
+完整 Monster Lab UI 替换方案、真实页面尺寸基线和风险分析见 [`dokidoki UI 重构评估.md`](dokidoki%20UI%20重构评估.md)。本版本只提交评估，不改变现有布局或立绘尺寸。
 
 ## 版本记录
+
+### 0.0.2.0
+
+项目统一更名为 dokidoki，脚本、资源、文档、测试、开发副本、内部样式标识与固定 CDN 路径同步更新，页面匹配、13 种族识别、列表及详情立绘行为保持不变；新增完整 Monster Lab UI 重构评估，并清理公开仓库中的开发提示文件与旧发布引用。
 
 ### 0.0.1.0
 
 建立独立脚本、严格页面匹配、13 种中英映射、兼容 HV Utils 的无新增列画像方案、响应式详情面板、Sharp 资源构建器和两组独立测试；完成列表原型、详情原型及全量立绘三阶段审核，并生成全部生产与本地开发资源。
-
-发布至 `Yogzhro/e-scripts`，创建不可变标签 `hvmp-v0.0.1.0`。提交哈希与标签路径下的列表精灵图及 13 张详情图均通过 HTTP 200、`image/webp` 和实际解码尺寸验证；alt 站实页确认 200 行 HV Utils／综合汉化列表、宽屏详情与窄屏详情布局正常。

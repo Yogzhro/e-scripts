@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         HV Monster Portraits
+// @name         dokidoki
 // @namespace    https://hentaiverse.org/
-// @version      0.0.1.0
+// @version      0.0.2.0
 // @description  Adds race-based portraits to the HentaiVerse Monster Lab.
 // @author       Reina
 // @match        https://hentaiverse.org/*
@@ -28,7 +28,7 @@
     ['sprite', 'Sprite', '妖精'],
     ['undead', 'Undead', '亡灵'],
   ];
-  const ASSET_BASE = 'https://cdn.jsdelivr.net/gh/Yogzhro/e-scripts@hvmp-v0.0.1.0/resource/HV%20Monster%20Portraits/dist';
+  const ASSET_BASE = 'https://cdn.jsdelivr.net/gh/Yogzhro/e-scripts@dokidoki-v0.0.2.0/resource/dokidoki/dist';
   const DEV_ASSETS = null;
   const warned = new Set();
 
@@ -62,7 +62,7 @@
   function warnOnce(key, message) {
     if (warned.has(key)) return;
     warned.add(key);
-    console.warn(`[HV Monster Portraits] ${message}`);
+    console.warn(`[dokidoki] ${message}`);
   }
 
   function assetUrl(key) {
@@ -79,9 +79,9 @@
       const raceCell = row.children[3];
       if (!numberCell?.dataset || !raceCell) continue;
       const key = raceKey(raceCell.textContent);
-      if (key) numberCell.dataset.hvmpRace = key;
+      if (key) numberCell.dataset.dokidokiRace = key;
       else {
-        delete numberCell.dataset.hvmpRace;
+        delete numberCell.dataset.dokidokiRace;
         const label = String(raceCell.textContent || '').trim();
         if (label) warnOnce(`race:${label}`, `Unknown race: ${label}`);
       }
@@ -95,7 +95,7 @@
     const headText = String(head.textContent || '').trim();
     const key = [...head.children].reverse().map(node => raceKey(node.textContent)).find(Boolean)
       || raceKey(headText);
-    let panel = outer.querySelector('.hvmp-detail');
+    let panel = outer.querySelector('.dokidoki-detail');
     if (!key) {
       panel?.remove();
       if (headText) warnOnce(`detail-race:${headText}`, `Unknown race in monster header: ${headText}`);
@@ -103,22 +103,22 @@
     }
     if (!panel) {
       panel = root.createElement('aside');
-      panel.className = 'hvmp-detail';
+      panel.className = 'dokidoki-detail';
       panel.setAttribute('aria-hidden', 'true');
       const image = root.createElement('img');
       image.alt = '';
       image.loading = 'eager';
       image.decoding = 'async';
-      image.onload = () => delete panel.dataset.hvmpError;
+      image.onload = () => delete panel.dataset.dokidokiError;
       image.onerror = () => {
-        panel.dataset.hvmpError = '1';
-        warnOnce(`asset:${panel.dataset.hvmpRace}`, `Portrait failed to load: ${panel.dataset.hvmpRace}`);
+        panel.dataset.dokidokiError = '1';
+        warnOnce(`asset:${panel.dataset.dokidokiRace}`, `Portrait failed to load: ${panel.dataset.dokidokiRace}`);
       };
       panel.appendChild(image);
       outer.appendChild(panel);
     }
-    panel.dataset.hvmpRace = key;
-    delete panel.dataset.hvmpError;
+    panel.dataset.dokidokiRace = key;
+    delete panel.dataset.dokidokiError;
     const image = panel.querySelector('img');
     const nextUrl = assetUrl(key);
     if (image.src !== nextUrl) image.src = nextUrl;
@@ -126,22 +126,22 @@
 
   function makeCss() {
     const positions = RACES.map(([key], index) =>
-      `#slot_pane>div>div:first-child[data-hvmp-race="${key}"]::after{background-position:-${index * 52}px 0}`
+      `#slot_pane>div>div:first-child[data-dokidoki-race="${key}"]::after{background-position:-${index * 52}px 0}`
     ).join('');
     return `
 #slot_pane>div{height:80px!important;line-height:normal!important;align-items:center}
 #slot_pane>div>div{box-sizing:border-box}
 #slot_pane>div>div:first-child{display:flex!important;align-items:center;gap:4px;width:76px!important;min-width:76px;height:80px;margin-left:4px!important;white-space:nowrap}
-#slot_pane>div>div:first-child[data-hvmp-race]::after{content:"";display:block;flex:0 0 52px;width:52px;height:72px;background-image:url("${listAssetUrl()}");background-repeat:no-repeat;background-size:676px 72px;pointer-events:none}
+#slot_pane>div>div:first-child[data-dokidoki-race]::after{content:"";display:block;flex:0 0 52px;width:52px;height:72px;background-image:url("${listAssetUrl()}");background-repeat:no-repeat;background-size:676px 72px;pointer-events:none}
 .hvut-ml-sort>span:first-child{width:86px!important;flex:0 0 86px}
 #slot_pane .hvut-ml-feed{top:34px!important}
 ${positions}
 #monster_outer{position:relative}
-.hvmp-detail{overflow:hidden;box-sizing:border-box;border:1px solid var(--color-border-default,#5f5145);background:#171418;box-shadow:0 3px 14px #0008;z-index:2}
-.hvmp-detail>img{display:block;width:100%;height:100%;object-fit:cover}
-.hvmp-detail[data-hvmp-error="1"]>img{visibility:hidden}
-@media (min-width:1480px){#mainpane{overflow:visible!important}.hvmp-detail{position:absolute;top:48px;left:calc(100% + 16px);width:300px;height:450px}}
-@media (max-width:1479px){#monster_outer{height:auto!important}.hvmp-detail{position:relative;clear:both;width:260px;height:390px;margin:20px auto 0}}
+.dokidoki-detail{overflow:hidden;box-sizing:border-box;border:1px solid var(--color-border-default,#5f5145);background:#171418;box-shadow:0 3px 14px #0008;z-index:2}
+.dokidoki-detail>img{display:block;width:100%;height:100%;object-fit:cover}
+.dokidoki-detail[data-dokidoki-error="1"]>img{visibility:hidden}
+@media (min-width:1480px){#mainpane{overflow:visible!important}.dokidoki-detail{position:absolute;top:48px;left:calc(100% + 16px);width:300px;height:450px}}
+@media (max-width:1479px){#monster_outer{height:auto!important}.dokidoki-detail{position:relative;clear:both;width:260px;height:390px;margin:20px auto 0}}
 `;
   }
 
@@ -153,9 +153,9 @@ ${positions}
 
   function init() {
     if (!pageType(location.href)) return;
-    if (!document.getElementById('hvmp-style')) {
+    if (!document.getElementById('dokidoki-style')) {
       const style = document.createElement('style');
-      style.id = 'hvmp-style';
+      style.id = 'dokidoki-style';
       style.textContent = makeCss();
       document.head.appendChild(style);
     }

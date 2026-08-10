@@ -73,7 +73,7 @@ async function buildAssets(assetRoot = __dirname) {
   return { sprite, details };
 }
 
-async function buildDevCopy(assetRoot = __dirname, productionPath = path.resolve(assetRoot, '..', '..', 'HV Monster Portraits.js')) {
+async function buildDevCopy(assetRoot = __dirname, productionPath = path.resolve(assetRoot, '..', '..', 'dokidoki.js')) {
   const dist = path.join(assetRoot, 'dist');
   const files = [['list', path.join(dist, 'list-sprite.webp')], ...RACE_KEYS.map(key => [key, path.join(dist, 'detail', `${key}.webp`)])];
   const missing = files.filter(([, file]) => !fs.existsSync(file)).map(([key]) => key);
@@ -86,11 +86,11 @@ async function buildDevCopy(assetRoot = __dirname, productionPath = path.resolve
   const production = fs.readFileSync(productionPath, 'utf8');
   if (!production.includes(marker)) throw new Error('Production DEV_ASSETS marker was not found');
   const output = production
-    .replace('// @name         HV Monster Portraits', '// @name         HV Monster Portraits (Local Dev)')
+    .replace('// @name         dokidoki', '// @name         dokidoki (Local Dev)')
     .replace(marker, `const DEV_ASSETS = ${JSON.stringify(assets)};`);
   const devDirectory = path.join(assetRoot, '.dev');
   fs.mkdirSync(devDirectory, { recursive: true });
-  const devPath = path.join(devDirectory, 'HV Monster Portraits.dev.user.js');
+  const devPath = path.join(devDirectory, 'dokidoki.dev.user.js');
   fs.writeFileSync(devPath, output);
   return devPath;
 }
