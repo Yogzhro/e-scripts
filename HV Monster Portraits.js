@@ -159,6 +159,9 @@ ${positions}
       style.textContent = makeCss();
       document.head.appendChild(style);
     }
+    const sprite = new Image();
+    sprite.onerror = () => warnOnce('asset:list', 'Portrait sprite failed to load');
+    sprite.src = listAssetUrl();
     apply(document, location.href);
     const target = document.querySelector('#monster_outer');
     if (!target) return;

@@ -4,11 +4,19 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 const workspace = path.resolve(__dirname, '..');
 const builderPath = path.join(workspace, 'resource', 'HV Monster Portraits', 'build-assets.js');
 assert(fs.existsSync(builderPath), 'missing portrait asset builder');
 const { RACE_KEYS, loadSharp, buildAssets, buildDevCopy } = require(builderPath);
+
+function gitFiles() {
+  return execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
+    cwd: workspace,
+    encoding: 'utf8',
+  }).split('\0').filter(Boolean);
+}
 
 (async () => {
   const sharp = loadSharp();
@@ -58,6 +66,45 @@ const { RACE_KEYS, loadSharp, buildAssets, buildDevCopy } = require(builderPath)
   assert(devSource.includes('data:image/webp;base64,'));
   assert(!devSource.includes('D:\\trans\\scripts'));
   assert(devSource.length > production.length);
+
+  const realRoot = path.join(workspace, 'resource', 'HV Monster Portraits');
+  const realList = path.join(realRoot, 'source', 'list');
+  const realDetail = path.join(realRoot, 'source', 'detail');
+  const realDist = path.join(realRoot, 'dist');
+  const webps = directory => fs.readdirSync(directory).filter(file => file.endsWith('.webp')).sort();
+  const expected = RACE_KEYS.map(key => `${key}.webp`).sort();
+  assert.deepEqual(webps(realList), expected, 'production list sources must contain exactly 13 races');
+  assert.deepEqual(webps(realDetail), expected, 'production detail sources must contain exactly 13 races');
+  for (const directory of [realList, realDetail]) {
+    for (const file of expected) {
+      const metadata = await sharp(path.join(directory, file)).metadata();
+      assert.equal(metadata.format, 'webp');
+      assert(metadata.width >= 600 && metadata.height >= 900 && metadata.height > metadata.width,
+        `${path.join(directory, file)} is not a high-resolution portrait source`);
+    }
+  }
+
+  const realSprite = path.join(realDist, 'list-sprite.webp');
+  const realSpriteMeta = await sharp(realSprite).metadata();
+  assert.deepEqual([realSpriteMeta.format, realSpriteMeta.width, realSpriteMeta.height], ['webp', 1352, 144]);
+  assert(fs.statSync(realSprite).size <= 300 * 1024);
+  const realDetailDist = path.join(realDist, 'detail');
+  assert.deepEqual(webps(realDetailDist), expected, 'production detail dist must contain exactly 13 races');
+  for (const file of expected) {
+    const fullPath = path.join(realDetailDist, file);
+    const metadata = await sharp(fullPath).metadata();
+    assert.deepEqual([metadata.format, metadata.width, metadata.height], ['webp', 600, 900]);
+    assert(fs.statSync(fullPath).size <= 220 * 1024, `${file} exceeds the detail CDN size cap`);
+  }
+
+  const repositoryFiles = gitFiles();
+  assert(!repositoryFiles.some(file => file.replaceAll('\\', '/').includes('resource/HV Monster Portraits/.dev/')),
+    'local development outputs must remain ignored');
+  const sizes = repositoryFiles.map(file => ({ file, size: fs.statSync(path.join(workspace, file)).size }));
+  const repositorySize = sizes.reduce((sum, item) => sum + item.size, 0);
+  assert(repositorySize < 45 * 1024 * 1024, `repository payload is ${(repositorySize / 1024 / 1024).toFixed(2)} MiB`);
+  const largest = sizes.reduce((max, item) => item.size > max.size ? item : max, { file: '', size: 0 });
+  assert(largest.size < 20 * 1024 * 1024, `${largest.file} exceeds the 20 MiB file cap`);
 
   try {
     fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
