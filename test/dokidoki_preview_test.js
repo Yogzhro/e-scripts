@@ -117,13 +117,14 @@ assert.match(preview, /\.hvmepp-monster-list/);
 assert.match(preview, /\.hvmepp-monster-option/);
 for (const id of [
   'dokidoki-preview-planner-controls', 'dokidoki-preview-upgrade-editor',
-  'dokidoki-preview-upgrade-matrix', 'dokidoki-preview-upgrade-cards',
+  'dokidoki-preview-editor-group-actions', 'dokidoki-preview-draft-cards',
   'dokidoki-preview-resource-section', 'dokidoki-preview-log-section',
   'dokidoki-preview-draft-status', 'dokidoki-preview-recalculate-warning',
   'dokidoki-preview-calculate', 'dokidoki-preview-reset-draft', 'dokidoki-preview-run-upgrade',
   'dokidoki-preview-review-confirmation', 'dokidoki-preview-confirm-dialog',
 ]) assert(preview.includes(`id="${id}"`), `missing integrated planner landmark: ${id}`);
-for (const group of ['primary', 'elemental', 'chaos']) assert(preview.includes(`data-upgrade-group="${group}"`), `missing upgrade group: ${group}`);
+for (const group of ['primary', 'elemental', 'chaos']) assert(preview.includes(`key: '${group}'`), `missing editor group: ${group}`);
+assert.doesNotMatch(preview, /key: 'chaos-[12]'/, 'Chaos groups remain split');
 for (const upgrade of ['STR', 'DEX', 'AGI', 'END', 'INT', 'WIS', 'FIRE', 'COLD', 'ELEC', 'WIND', 'HOLY', 'DARK', 'Scavenging', 'Fortitude', 'Brutality', 'Accuracy', 'Precision', 'Overpower', 'Interception', 'Dissipation', 'Evasion', 'Defense', 'Warding', 'Swiftness']) {
   assert.match(preview, new RegExp(`(?:key|label):\\s*['"]${upgrade}['"]`), `planner config is missing: ${upgrade}`);
 }
@@ -133,7 +134,8 @@ assert.match(preview, /applyExactPlan/);
 assert.match(preview, /markDraftCustom/);
 assert.match(preview, /renderUpgradeEditor/);
 assert.match(preview, /renderResourceSummary/);
-assert.match(preview, /const plannerOpenCards = new Set\(\)/, 'responsive card open state is not preserved');
+assert.match(preview, /const plannerOpenCards = new Set\(\)/, 'monster card disclosure state is not preserved');
+assert.match(preview, /document\.createElement\('details'\)/, 'monster cards are not collapsible');
 assert.match(preview, /selected\.some\(isMonsterDirty\) && !force[\s\S]+recalculate-warning/, 'recalculation can overwrite a modified draft without confirmation');
 assert.match(preview, /if \(shortage\) details\.open = true/, 'resource shortage does not reveal its details');
 assert.match(preview, /if \(plannerLog\?\.error\)[^{;]*document\.getElementById\('dokidoki-preview-log-section'\)\.open = true/, 'errors do not reveal the log');
@@ -150,11 +152,14 @@ assert.doesNotMatch(preview, /Math\.trunc\(Number\(input\.value\)/, 'invalid lev
 assert.match(preview, /className = 'preview-all-resources'/);
 assert.match(preview, /Show all 13 resources/);
 assert.match(preview, /queueMicrotask\(\(\) => document\.getElementById\('dokidoki-preview-confirm-cancel'\)\.focus\(\)\)/);
-assert.match(preview, /\.preview-upgrade-matrix-wrap[^}]+overflow:\s*auto/i);
-assert.match(preview, /\.preview-upgrade-matrix[^}]+min-width:/i);
-assert.match(preview, /\.preview-upgrade-matrix\s+thead\s+th[^}]+position:\s*sticky/i);
-assert.match(preview, /data-preview-width="900"[^}]+\.preview-upgrade-matrix-wrap[^}]+display:\s*none/i);
-assert.match(preview, /data-preview-width="900"[^}]+#dokidoki-preview-upgrade-cards[^}]+display:/i);
+assert.match(preview, /\.preview-draft-groups[^}]+grid-template-columns:\s*repeat\(2,\s*minmax\(260px,\s*1fr\)\)/i);
+assert.match(preview, /\.preview-upgrade-card-grid[^}]+grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/i);
+assert.match(preview, /\.preview-upgrade-card-group\[data-group="chaos"\][^}]+grid-column:\s*1\s*\/\s*-1/i);
+assert.doesNotMatch(preview, /preview-upgrade-matrix|preview-editor-view-tabs|activePlannerView/, 'legacy focused matrix remains');
+assert.match(preview, /const upgradeLabel = item => isChinese && item\.zh \? item\.zh : item\.key/);
+const refreshIndex = preview.indexOf('id="dokidoki-preview-refresh-data"');
+const runIndex = preview.indexOf('id="dokidoki-preview-run-upgrade"');
+assert(refreshIndex >= 0 && runIndex > refreshIndex, 'upgrade button must follow refresh data');
 assert.doesNotMatch(preview, /preview-pagination|data-preview-page=/i, 'planner must not paginate monsters');
 const plannerControlsIndex = preview.indexOf('id="dokidoki-preview-planner-controls"');
 const editorIndex = preview.indexOf('id="dokidoki-preview-upgrade-editor"');

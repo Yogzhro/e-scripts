@@ -99,7 +99,7 @@ for (const removed of [
 ]) assert(!source.includes(removed), `thin/redundant function remains: ${removed}`);
 
 assert(source.includes('function syncMonsterSelection('));
-assert(source.includes('// @version      0.3.5.0'));
+assert(source.includes('// @version      0.3.6.7'));
 assert(source.split(/\r?\n/).length < 4100, 'production source should be materially compacted');
 const css = source.slice(source.indexOf('GM_addStyle(`'), source.indexOf('`);', source.indexOf('GM_addStyle(`')));
 assert(css.split(/\r?\n/).length < 170, 'CSS should use compact one-rule formatting');

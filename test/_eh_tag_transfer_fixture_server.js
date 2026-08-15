@@ -368,36 +368,80 @@ function galleryHtml(gallery, shouldInjectScript = false) {
 </html>`;
 }
 
-function searchRow(gallery) {
+function previewTags(gallery) {
     const previewTags = gallery.tags.map(([tag, options = {}]) =>
-        `<div class="${options.solid === false ? 'gtl' : 'gt'}" title="${tag}"></div>`
+        `<div class="${options.solid === false ? 'gtl' : 'gt'}" title="${tag}" ehs-tag="${tag.split(':').slice(1).join(':')}"></div>`
     ).join('');
+    return previewTags;
+}
+
+function pageCountText(gallery) {
+    return `${gallery.pages} pages`;
+}
+
+function searchRow(gallery, layout = 'e') {
+    const tags = previewTags(gallery);
+    if (layout === 'm' || layout === 'p') {
+        return `<tr>
+            <td class="gl1m"></td>
+            <td class="gl2m"><div>${pageCountText(gallery)}</div></td>
+            <td class="gl3m glname"><a href="${gallery.path}"><div class="glink">${gallery.title}</div></a>${layout === 'p' ? tags : ''}</td>
+            <td class="ehx-injected"><a href="data:text/plain,ignored">injected</a></td>
+        </tr>`;
+    }
+    if (layout === 'l') {
+        return `<tr>
+            <td class="gl1c"></td>
+            <td class="gl2c"><div>${pageCountText(gallery)}</div></td>
+            <td class="gl3c glname"><a href="${gallery.path}"><div class="glink">${gallery.title}</div></a>${tags}</td>
+            <td class="ehx-injected"><a href="data:text/plain,ignored">injected</a></td>
+        </tr>`;
+    }
+    if (layout === 't') {
+        return `<div class="gl1t">
+            <div class="gl3t glname"><a href="${gallery.path}"><div class="glink">${gallery.title}</div></a></div>
+            <div class="gl5t"><div>${pageCountText(gallery)}</div>${tags}</div>
+            <div class="ehx-injected"><a href="data:text/plain,ignored">injected</a></div>
+        </div>`;
+    }
     return `<tr>
         <td class="gl1e"><a href="${gallery.path}"></a></td>
-        <td class="glname">
-            <a href="${gallery.path}"><div class="glink">${gallery.title}</div></a>
-        </td>
-        <td>
-            <div class="gl3e"><div></div><div></div><div></div><div></div><div class="fixture-list-meta"><div>29</div><div>${gallery.pages} pages</div></div></div>
-            ${previewTags}
+        <td class="gl2e">
+            <div class="gl3e"><div></div><div></div><div></div><div></div><div class="fixture-list-meta"><div>29</div><div>${pageCountText(gallery)}</div></div></div>
+            <a class="glname" href="${gallery.path}"><div class="glink">${gallery.title}</div>${tags}</a>
+            <div class="ehx-injected"><a href="data:text/plain,ignored">injected</a></div>
         </td>
     </tr>`;
+}
+
+function malformedSearchRow(layout = 'e') {
+    return layout === 't'
+        ? '<div class="gl1t"><div class="gl3t"><div class="glink">Malformed</div></div></div>'
+        : `<tr><td class="${layout === 'm' || layout === 'p' ? 'gl1m' : layout === 'l' ? 'gl1c' : 'gl1e'}"><div class="glink">Malformed</div></td></tr>`;
+}
+
+function galleryListing(rows, layout = 'e', includeMalformed = false) {
+    const layoutClass = {m: 'gltm', p: 'gltm', l: 'gltc', e: 'glte', t: 'gld'}[layout] || 'glte';
+    const contents = `${rows.map(gallery => searchRow(gallery, layout)).join('')}${includeMalformed ? malformedSearchRow(layout) : ''}`;
+    return layout === 't'
+        ? `<div class="itg ${layoutClass}">${contents}</div>`
+        : `<table class="itg ${layoutClass}"><tbody>${contents}</tbody></table>`;
 }
 
 function searchHtml(url) {
     const searchTerm = url.searchParams.get('f_search') || '';
     if (searchTerm.includes('Correction Branch Fixture')) {
-        return `<!doctype html><html><body><table class="itg"><tbody>${searchRow(
+        return `<!doctype html><html><body>${galleryListing([
             galleries.correctionSource
-        )}</tbody></table></body></html>`;
+        ])}</body></html>`;
     }
     if (searchTerm.includes('Derived Only Fixture')) {
-        return '<!doctype html><html><body><table class="itg"><tbody></tbody></table></body></html>';
+        return '<!doctype html><html><body><table class="itg glte"><tbody></tbody></table></body></html>';
     }
     if (searchTerm.includes('Random Skip Fixture')) {
-        return `<!doctype html><html><body><table class="itg"><tbody>${searchRow(
+        return `<!doctype html><html><body>${galleryListing([
             galleries.randomSkipSource
-        )}</tbody></table></body></html>`;
+        ])}</body></html>`;
     }
     const onSecondPage = url.searchParams.get('next') === 'fixture';
     const rows = onSecondPage
@@ -408,7 +452,7 @@ function searchHtml(url) {
     const nextHref = `/?f_search=${encodeURIComponent(url.searchParams.get('f_search') || '')}&next=fixture`;
     return `<!doctype html>
 <html><body>
-    <table class="itg"><tbody>${rows}</tbody></table>
+    <table class="itg glte"><tbody>${rows}</tbody></table>
     ${onSecondPage ? '' : `<a id="dnext" href="${nextHref.replace(/&/g, '&amp;')}">Next</a>`}
 </body></html>`;
 }
@@ -528,6 +572,14 @@ function homepageAuditRuntime() {
 
 function homepageHtml(url) {
     if (url.searchParams.has('reset')) showNewGalleries = false;
+    const layout = ['m', 'p', 'l', 'e', 't'].includes(url.searchParams.get('layout'))
+        ? url.searchParams.get('layout')
+        : 'e';
+    const layoutOptions = [
+        ['m', 'Minimal'], ['p', 'Minimal+'], ['l', 'Compact'], ['e', 'Extended'], ['t', 'Thumbnail']
+    ].map(([value, label]) =>
+        `<option value="${value}"${layout === value ? ' selected' : ''}>${label}</option>`
+    ).join('');
     const rows = showNewGalleries
         ? [galleries.current, galleries.short, galleries.digital]
         : [galleries.digital];
@@ -539,12 +591,20 @@ function homepageHtml(url) {
     <a id="fixture-correction-target" href="${galleries.correctionTarget.path}?reset=1&amp;run=1&amp;random=zero">未标注分支</a>
     <a id="fixture-derived-only" href="${galleries.derivedOnly.path}?reset=1&amp;run=1&amp;random=zero">仅标题派生</a>
     <a id="fixture-random-skip" href="${galleries.randomSkipTarget.path}?reset=1&amp;run=1&amp;random=max">随机少迁移</a>
+    <nav id="fixture-layouts">
+        <a href="/?layout=m">Minimal</a>
+        <a href="/?layout=p">Minimal+</a>
+        <a href="/?layout=l">Compact</a>
+        <a href="/?layout=e">Extended</a>
+        <a href="/?layout=t">Thumbnail</a>
+    </nav>
+    <div class="searchnav"><select id="fixture-layout-select">${layoutOptions}</select></div>
     <button type="button" id="fixture-freeze">模拟后台冻结</button>
     <button type="button" id="fixture-resume-hidden">模拟隐藏恢复</button>
     <button type="button" id="fixture-visible">恢复可见</button>
     <button type="button" id="fixture-status-short">短状态</button>
     <button type="button" id="fixture-status-long">超长状态</button>
-    <table class="itg"><tbody>${rows.map(searchRow).join('')}</tbody></table>
+    ${galleryListing(rows, layout, true)}
     <div id="fixture-events" hidden></div>
     <pre id="fixture-home-audit"></pre>
     <pre id="fixture-status-audit"></pre>
@@ -743,7 +803,8 @@ const server = http.createServer((request, response) => {
         request.on('end', () => {
             let result;
             try {
-                result = applyTagGalleryVote(JSON.parse(body || '{}'));
+                const payload = JSON.parse(body || '{}');
+                result = applyTagGalleryVote(payload);
             } catch {
                 result = {status: 400, body: {error: 'Invalid JSON'}};
             }

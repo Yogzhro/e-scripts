@@ -15,9 +15,9 @@ function extractBlock(startText, endText) {
   return source.slice(start, end);
 }
 
-assert(source.includes('// @version      0.3.5.0'));
-assert(source.includes("const ADDON_VERSION = '0.3.5.0'"));
-assert(lines <= 3800, `production script should stay <= 3800 lines with the 24-field editor, got ${lines}`);
+assert(source.includes('// @version      0.3.6.7'));
+assert(source.includes("const ADDON_VERSION = '0.3.6.7'"));
+assert(lines <= 3875, `production script should stay <= 3875 lines with the focused 24-field editor and explicit data refresh, got ${lines}`);
 
 const stateBlock = extractBlock('  const state = {', '\n  };');
 for (const staleKey of ['monsterCache', 'lastMonsterSlot', 'priceCache', 'prices']) {

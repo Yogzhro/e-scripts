@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         E-Hentai 跨语言画廊 Tag 迁移
 // @namespace    eh-tag-transfer
-// @version      0.2.5.0
+// @version      0.2.6.7
 // @description  在详情页或 E-Hentai/ExHentai 主页发现同作品画廊，迁移时随机少量省略标签、按明确标题补充 uncensored 并纠正错误投票
 // @author       reina
 // @match        https://e-hentai.org/
@@ -21,24 +21,18 @@
 const DEFAULT_BLACKLIST = [
     'language:*',
     'reclass:*',
-    'extraneous ads',
-    'full color',
-    'full censorship',
-    'mosaic censorship',
-    'scanmark',
-    'watermarked',
+    'other:extraneous ads',
+    'other:full color',
+    'other:scanmark',
+    'other:watermarked',
     'other:multipanel sequence',
-    'big ass',
-    'x-ray',
-    'rough translation',
-    'original',
-    'kissing',
-    'handjob',
-    'big breasts',
-    'blowjob',
-    'paizuri',
-    'nakadashi',
-    'swimsuit'
+    'other:rough translation',
+    'parody:original',
+    'female:handjob',
+    'female:blowjob',
+    'female:paizuri',
+    'female:nakadashi',
+    'female:swimsuit'
 ].join('\n');
 
 // 直接修改这里的参数；面板和 localStorage 不会覆盖这些值。
@@ -70,7 +64,7 @@ const SCRIPT_PARAMETERS = Object.freeze({
 function createEhTagTransferModule() {
     "use strict";
     // 1. 配置与运行状态
-    const SCRIPT_VERSION = "0.2.5.0",
+    const SCRIPT_VERSION = "0.2.6.7",
         LOG_PREFIX = "[跨语言 Tag 迁移]",
         LEGACY_UI_STATE_STORAGE_KEY = "reina.ehTagTransfer.ui.v1",
         BAD_TAG_STATE_STORAGE_KEY = "reina.ehTagTransfer.badTags.v3",
@@ -191,6 +185,21 @@ function createEhTagTransferModule() {
             "rewrite",
         ],
         DEFAULT_CONFIG = SCRIPT_PARAMETERS,
+        CONFIG_NUMBER_RULES = Object.freeze({
+            randomTagSkipMin: [0, 1_000],
+            randomTagSkipMax: [0, 1_000],
+            maxSearchPages: [1, 5],
+            searchRequestIntervalMs: [3_000, 60_000],
+            maxPageDifference: [0, 20],
+            maxTitleDistanceRatio: [0, 1, false],
+            minCandidateScoreGap: [0, 50, false],
+            genericTitleLength: [4, 40],
+            minGalleryPages: [0, 1_000],
+            homeScanPages: [1, 10],
+            homeRequestLimit: [10, 200],
+            scheduleMinutes: [3, 1_440],
+            scheduleTimeJitterMinutes: [0, 720],
+        }),
         RUNTIME_LIMITS = Object.freeze({
             autoStartDelayMs: 900,
             fetchTimeoutMs: 30_000,
@@ -248,6 +257,9 @@ function createEhTagTransferModule() {
     function clampInteger(value, fallback, minimum, maximum) {
         return Math.round(clampNumber(value, fallback, minimum, maximum));
     }
+    function sanitizeBoolean(value, fallback) {
+        return value == null ? fallback : value === true;
+    }
     function parseScheduleMinutes(value) {
         const match = String(value || "")
             .trim()
@@ -261,91 +273,37 @@ function createEhTagTransferModule() {
         const sanitizedUid = String(inputConfig.uid ?? "")
             .replace(/\D/g, "")
             .slice(0, 12),
-            requestedRandomTagSkipMin = clampInteger(
-                inputConfig.randomTagSkipMin,
-                DEFAULT_CONFIG.randomTagSkipMin,
-                0,
-                1_000,
-            ),
-            requestedRandomTagSkipMax = clampInteger(
-                inputConfig.randomTagSkipMax,
-                DEFAULT_CONFIG.randomTagSkipMax,
-                0,
-                1_000,
+            numericConfig = {};
+        for (const [key, [minimum, maximum, isInteger = true]] of Object.entries(
+            CONFIG_NUMBER_RULES,
+        )) {
+            numericConfig[key] = (isInteger ? clampInteger : clampNumber)(
+                inputConfig[key],
+                DEFAULT_CONFIG[key],
+                minimum,
+                maximum,
             );
+        }
         return {
             mode: inputConfig.mode === "all" ? "all" : DEFAULT_CONFIG.mode,
             transferDirection:
                 inputConfig.transferDirection === "all" ? "all" : DEFAULT_CONFIG.transferDirection,
-            randomTagSkipEnabled:
-                inputConfig.randomTagSkipEnabled == null
-                    ? DEFAULT_CONFIG.randomTagSkipEnabled
-                    : inputConfig.randomTagSkipEnabled === true,
-            randomTagSkipMin: Math.min(requestedRandomTagSkipMin, requestedRandomTagSkipMax),
-            randomTagSkipMax: Math.max(requestedRandomTagSkipMin, requestedRandomTagSkipMax),
-            maxSearchPages: clampInteger(
-                inputConfig.maxSearchPages,
-                DEFAULT_CONFIG.maxSearchPages,
-                1,
-                5,
+            randomTagSkipEnabled: sanitizeBoolean(
+                inputConfig.randomTagSkipEnabled,
+                DEFAULT_CONFIG.randomTagSkipEnabled,
             ),
-            searchRequestIntervalMs: clampInteger(
-                inputConfig.searchRequestIntervalMs,
-                DEFAULT_CONFIG.searchRequestIntervalMs,
-                3_000,
-                60_000,
+            ...numericConfig,
+            randomTagSkipMin: Math.min(
+                numericConfig.randomTagSkipMin,
+                numericConfig.randomTagSkipMax,
             ),
-            maxPageDifference: clampInteger(
-                inputConfig.maxPageDifference,
-                DEFAULT_CONFIG.maxPageDifference,
-                0,
-                20,
+            randomTagSkipMax: Math.max(
+                numericConfig.randomTagSkipMin,
+                numericConfig.randomTagSkipMax,
             ),
-            maxTitleDistanceRatio: clampNumber(
-                inputConfig.maxTitleDistanceRatio,
-                DEFAULT_CONFIG.maxTitleDistanceRatio,
-                0,
-                1,
-            ),
-            minCandidateScoreGap: clampNumber(
-                inputConfig.minCandidateScoreGap,
-                DEFAULT_CONFIG.minCandidateScoreGap,
-                0,
-                50,
-            ),
-            genericTitleLength: clampInteger(
-                inputConfig.genericTitleLength,
-                DEFAULT_CONFIG.genericTitleLength,
-                4,
-                40,
-            ),
-            minGalleryPages: clampInteger(
-                inputConfig.minGalleryPages,
-                DEFAULT_CONFIG.minGalleryPages,
-                0,
-                1_000,
-            ),
-            homeScanPages: clampInteger(
-                inputConfig.homeScanPages,
-                DEFAULT_CONFIG.homeScanPages,
-                1,
-                10,
-            ),
-            homeRequestLimit: clampInteger(
-                inputConfig.homeRequestLimit,
-                DEFAULT_CONFIG.homeRequestLimit,
-                10,
-                200,
-            ),
-            scheduleEnabled:
-                inputConfig.scheduleEnabled == null
-                    ? DEFAULT_CONFIG.scheduleEnabled
-                    : inputConfig.scheduleEnabled === true,
-            scheduleMinutes: clampInteger(
-                inputConfig.scheduleMinutes,
-                DEFAULT_CONFIG.scheduleMinutes,
-                3,
-                1440,
+            scheduleEnabled: sanitizeBoolean(
+                inputConfig.scheduleEnabled,
+                DEFAULT_CONFIG.scheduleEnabled,
             ),
             scheduleStartTime: normalizeScheduleTime(
                 inputConfig.scheduleStartTime,
@@ -355,16 +313,10 @@ function createEhTagTransferModule() {
                 inputConfig.scheduleEndTime,
                 DEFAULT_CONFIG.scheduleEndTime,
             ),
-            scheduleTimeJitterMinutes: clampInteger(
-                inputConfig.scheduleTimeJitterMinutes,
-                DEFAULT_CONFIG.scheduleTimeJitterMinutes,
-                0,
-                720,
+            badTagEnabled: sanitizeBoolean(
+                inputConfig.badTagEnabled,
+                DEFAULT_CONFIG.badTagEnabled,
             ),
-            badTagEnabled:
-                inputConfig.badTagEnabled == null
-                    ? DEFAULT_CONFIG.badTagEnabled
-                    : inputConfig.badTagEnabled === true,
             uid: sanitizedUid,
             blacklist:
                 typeof inputConfig.blacklist === "string"
@@ -990,9 +942,9 @@ function createEhTagTransferModule() {
             parodies = [];
         for (const titlePart of remainingTitle.split("|")) {
             const parsedPart = parseTitlePart(titlePart),
-                normalizedPart = normalizeComparableTitle(parsedPart.baseTitle);
+                normalizedPart = normalizeComparableText(parsedPart.baseTitle);
             const isDuplicateTitle = coreParts.some(
-                (existingTitle) => normalizeComparableTitle(existingTitle) === normalizedPart,
+                (existingTitle) => normalizeComparableText(existingTitle) === normalizedPart,
             );
             if (!normalizedPart || isDuplicateTitle) continue;
             coreParts.push(parsedPart.baseTitle);
@@ -1027,14 +979,11 @@ function createEhTagTransferModule() {
             creatorTokens: creatorTokens,
             coreNumbers: new Set(
                 coreParts
-                    .flatMap((part) => normalizeComparableTitle(part).split(" "))
+                    .flatMap((part) => normalizeComparableText(part).split(" "))
                     .filter((token) => /^\d{1,4}$/u.test(token))
                     .map(normalizeChapterNumber),
             ),
         };
-    }
-    function normalizeComparableTitle(title) {
-        return normalizeComparableText(title);
     }
     function levenshteinDistance(left, right) {
         const leftText = String(left || ""),
@@ -1064,11 +1013,13 @@ function createEhTagTransferModule() {
         }
         return previousRow[rightText.length];
     }
-    function titleDistanceRatio(left, right) {
-        const normalizedLeft = normalizeComparableTitle(left),
-            normalizedRight = normalizeComparableTitle(right),
+    function titleDistanceRatio(left, right, calculateDistance = levenshteinDistance) {
+        const normalizedLeft = normalizeComparableText(left),
+            normalizedRight = normalizeComparableText(right),
             maxLength = Math.max(normalizedLeft.length, normalizedRight.length);
-        return maxLength ? levenshteinDistance(normalizedLeft, normalizedRight) / maxLength : 1;
+        if (!maxLength) return 1;
+        if (normalizedLeft === normalizedRight) return 0;
+        return calculateDistance(normalizedLeft, normalizedRight) / maxLength;
     }
     function countSetOverlap(leftSet, rightSet) {
         let count = 0;
@@ -1118,13 +1069,17 @@ function createEhTagTransferModule() {
         if (cacheKey) titleIdentityCache.set(cacheKey, analysis);
         return analysis;
     }
-    function findClosestTitlePair(leftIdentity, rightIdentity) {
+    function findClosestTitlePair(
+        leftIdentity,
+        rightIdentity,
+        getDistanceRatio = titleDistanceRatio,
+    ) {
         let bestRatio = Infinity,
             leftTitle = "",
             rightTitle = "";
         for (const leftTitlePart of leftIdentity.coreParts)
             for (const rightTitlePart of rightIdentity.coreParts) {
-                const ratio = titleDistanceRatio(leftTitlePart, rightTitlePart);
+                const ratio = getDistanceRatio(leftTitlePart, rightTitlePart);
                 if (ratio < bestRatio) {
                     bestRatio = ratio;
                     leftTitle = leftTitlePart;
@@ -1136,9 +1091,6 @@ function createEhTagTransferModule() {
             leftTitle: leftTitle,
             rightTitle: rightTitle,
         };
-    }
-    function getTitleFieldLabel(index) {
-        return index === 0 ? "主标题" : index === 1 ? "日文标题" : `标题 ${index + 1}`;
     }
     function compareChapterSets(currentIdentity, candidateIdentity) {
         if (!currentIdentity.chapters.length || !candidateIdentity.chapters.length)
@@ -1205,9 +1157,32 @@ function createEhTagTransferModule() {
         }
         return tagSets;
     }
-    function compareTitleSets(currentTitles, candidateTitles, config = DEFAULT_CONFIG) {
+    function compareTitleSets(
+        currentTitles,
+        candidateTitles,
+        config = DEFAULT_CONFIG,
+        calculateDistanceRatio = titleDistanceRatio,
+    ) {
         const currentIdentity = analyzeTitleSet(currentTitles),
-            candidateIdentity = analyzeTitleSet(candidateTitles);
+            candidateIdentity = analyzeTitleSet(candidateTitles),
+            titlePairDistanceCache = new Map();
+        function getCachedTitleDistance(leftTitle, rightTitle) {
+            const normalizedLeft = normalizeComparableText(leftTitle),
+                normalizedRight = normalizeComparableText(rightTitle),
+                [firstKey, secondKey] =
+                    normalizedLeft <= normalizedRight
+                        ? [normalizedLeft, normalizedRight]
+                        : [normalizedRight, normalizedLeft];
+            let distanceRow = titlePairDistanceCache.get(firstKey);
+            if (!distanceRow) {
+                distanceRow = new Map();
+                titlePairDistanceCache.set(firstKey, distanceRow);
+            }
+            if (!distanceRow.has(secondKey)) {
+                distanceRow.set(secondKey, calculateDistanceRatio(leftTitle, rightTitle));
+            }
+            return distanceRow.get(secondKey);
+        }
         if (!currentIdentity.coreParts.length || !candidateIdentity.coreParts.length)
             return {
                 accepted: false,
@@ -1249,7 +1224,11 @@ function createEhTagTransferModule() {
         };
         for (const currentTitleIdentity of currentIdentity.identities)
             for (const candidateTitleIdentity of candidateIdentity.identities) {
-                const match = findClosestTitlePair(currentTitleIdentity, candidateTitleIdentity);
+                const match = findClosestTitlePair(
+                    currentTitleIdentity,
+                    candidateTitleIdentity,
+                    getCachedTitleDistance,
+                );
                 if (match.ratio < closestPair.ratio) closestPair = match;
             }
         if (closestPair.ratio > config.maxTitleDistanceRatio)
@@ -1265,9 +1244,13 @@ function createEhTagTransferModule() {
                 (candidateField) => candidateField.index === currentField.index,
             );
             if (!candidateField) continue;
-            const match = findClosestTitlePair(currentField.identity, candidateField.identity);
+            const match = findClosestTitlePair(
+                currentField.identity,
+                candidateField.identity,
+                getCachedTitleDistance,
+            );
             fieldMatches.push({
-                field: getTitleFieldLabel(currentField.index),
+                field: ["主标题", "日文标题"][currentField.index] || `标题 ${currentField.index + 1}`,
                 index: currentField.index,
                 ...match,
                 accepted: match.ratio <= config.maxTitleDistanceRatio,
@@ -1275,8 +1258,8 @@ function createEhTagTransferModule() {
         }
         const acceptedMatches = fieldMatches.filter((match) => match.accepted),
             coreLength = Math.max(
-                normalizeComparableTitle(closestPair.leftTitle).length,
-                normalizeComparableTitle(closestPair.rightTitle).length,
+                normalizeComparableText(closestPair.leftTitle).length,
+                normalizeComparableText(closestPair.rightTitle).length,
             ),
             reason =
                 acceptedMatches.length > 0
@@ -1308,18 +1291,16 @@ function createEhTagTransferModule() {
         const match = String(text || "").match(/(\d+)\s*pages?/i);
         return match ? Number(match[1]) : null;
     }
-    function findSearchResultPageCount(texts) {
-        const values = Array.from(texts || []);
+    function readSearchResultPageCount(row) {
+        const values = Array.from(
+            row.querySelectorAll("td,div,span"),
+            (element) => element.textContent,
+        );
         for (let index = values.length - 1; index >= 0; index--) {
             const match = normalizeWhitespace(values[index]).match(/^(\d+)\s*pages?$/i);
             if (match) return Number(match[1]);
         }
         return null;
-    }
-    function readSearchResultPageCount(row) {
-        return findSearchResultPageCount(
-            Array.from(row.querySelectorAll("td,div,span"), (element) => element.textContent),
-        );
     }
     function parseGalleryPostedAt(text) {
         const match = String(text || "").match(
@@ -1384,21 +1365,16 @@ function createEhTagTransferModule() {
         }
         return tags;
     }
-    function readGalleryPageCount(documentNode) {
-        const rows = documentNode.querySelectorAll("#gdd tr");
-        for (const row of rows) {
+    function readGalleryDetails(documentNode) {
+        let pageCount = null,
+            postedAt = null;
+        for (const row of documentNode.querySelectorAll("#gdd tr")) {
             const text = normalizeWhitespace(row.textContent);
-            if (/^Length:/i.test(text)) return parsePageCount(text);
+            if (pageCount === null && /^Length:/i.test(text)) pageCount = parsePageCount(text);
+            else if (postedAt === null && /^Posted:/i.test(text)) postedAt = parseGalleryPostedAt(text);
+            if (pageCount !== null && postedAt !== null) break;
         }
-        return null;
-    }
-    function readGalleryPostedAt(documentNode) {
-        const rows = documentNode.querySelectorAll("#gdd tr");
-        for (const row of rows) {
-            const text = normalizeWhitespace(row.textContent);
-            if (/^Posted:/i.test(text)) return parseGalleryPostedAt(text);
-        }
-        return null;
+        return { pageCount: pageCount, postedAt: postedAt };
     }
     function getExplicitLanguage(tags) {
         const normalizedTags = (tags || [])
@@ -1425,14 +1401,15 @@ function createEhTagTransferModule() {
         const titleGn = normalizeWhitespace(documentNode.querySelector("#gn")?.textContent),
             titleGj = normalizeWhitespace(documentNode.querySelector("#gj")?.textContent),
             tags = parseGalleryTags(documentNode),
-            explicitLanguage = getExplicitLanguage(tags);
+            explicitLanguage = getExplicitLanguage(tags),
+            details = readGalleryDetails(documentNode);
         return {
             url: canonicalGalleryUrl(url, new URL(url, location.href).origin),
             titleGn: titleGn,
             titleGj: titleGj,
             titleRefs: [titleGn, titleGj],
-            pageCount: readGalleryPageCount(documentNode),
-            postedAt: readGalleryPostedAt(documentNode),
+            pageCount: details.pageCount,
+            postedAt: details.postedAt,
             tags: tags,
             language: classifyLanguage(
                 tags.map((tag) => tag.tag),
@@ -2023,28 +2000,29 @@ function createEhTagTransferModule() {
         if (batch.length) batches.push(batch);
         return batches;
     }
-    function parseSearchResults(documentNode, origin) {
-        const rows = documentNode.querySelectorAll(".itg tr,.gl1t"),
+    function parseGalleryList(documentNode, origin) {
+        const items = documentNode.querySelectorAll(".itg tr,.gl1t"),
             results = [];
-        for (const row of rows) {
-            const titleLink = row.querySelector(".glink"),
-                galleryLink = row.querySelector('.gl1e a,.glname a,.gl2e a,.gl1t>a,a[href*="/g/"]');
-            if (!titleLink || !galleryLink) continue;
-            const url = canonicalGalleryUrl(galleryLink.getAttribute("href"), origin);
-            if (!url) continue;
-            const tags = Array.from(row.querySelectorAll(".gt,.gtl"))
+        for (const item of items) {
+            const titleElement = item.querySelector(".glink"),
+                galleryLink = item.querySelector(
+                    '.gl1e a,.glname a,.gl2e a,.gl1t>a,a[href*="/g/"]',
+                ),
+                url = canonicalGalleryUrl(galleryLink?.getAttribute("href"), origin),
+                title = normalizeWhitespace(titleElement?.textContent);
+            if (!url || !title) continue;
+            const tags = Array.from(item.querySelectorAll(".gt,.gtl"))
                     .map((tagElement) => ({
                         tag: normalizeTag(tagElement.getAttribute("title")),
                         solid: tagElement.classList.contains("gt"),
                     }))
                     .filter((tag) => tag.tag),
-                title = normalizeWhitespace(titleLink.textContent),
                 explicitLanguage = getExplicitLanguage(tags);
             results.push({
                 url: url,
                 title: title,
                 titleRefs: [title],
-                pageCount: readSearchResultPageCount(row),
+                pageCount: readSearchResultPageCount(item),
                 tags: tags,
                 language: classifyLanguage(
                     tags.map((tag) => tag.tag),
@@ -2148,15 +2126,11 @@ function createEhTagTransferModule() {
     async function randomDelay(minimum, maximum, signal) {
         await delay(randomInteger(minimum, maximum), signal);
     }
-    function getSearchWaitMs(
-        lastRequestAt,
-        now = Date.now(),
-        intervalMs = DEFAULT_CONFIG.searchRequestIntervalMs,
-    ) {
-        return Math.max(0, Number(lastRequestAt || 0) + intervalMs - now);
-    }
     async function waitForSearchThrottle(signal, intervalMs) {
-        const waitMs = getSearchWaitMs(runtimeState.lastSearchRequestAt, Date.now(), intervalMs);
+        const waitMs = Math.max(
+            0,
+            Number(runtimeState.lastSearchRequestAt || 0) + intervalMs - Date.now(),
+        );
         if (waitMs > 0) await delay(waitMs, signal);
         runtimeState.lastSearchRequestAt = Date.now();
     }
@@ -2166,13 +2140,6 @@ function createEhTagTransferModule() {
         return Number.isInteger(status) && status > 0
             ? [408, 425, 429].includes(status) || status >= 500
             : error.name === "TypeError" || error.name === "TimeoutError";
-    }
-    function getRetryDelay(attempt) {
-        const baseDelay = Math.min(
-            RUNTIME_LIMITS.fetchRetryMaxMs,
-            RUNTIME_LIMITS.fetchRetryBaseMs * 2 ** (attempt - 1),
-        );
-        return randomInteger(0.8 * baseDelay, 1.2 * baseDelay);
     }
     async function withReadRetry(operation, signal, failureLabel) {
         let lastError = null;
@@ -2185,7 +2152,11 @@ function createEhTagTransferModule() {
             }
             if (attempt >= RUNTIME_LIMITS.fetchMaxAttempts || !isRetryableFetchError(lastError))
                 throw lastError;
-            const delayMs = getRetryDelay(attempt);
+            const baseDelay = Math.min(
+                    RUNTIME_LIMITS.fetchRetryMaxMs,
+                    RUNTIME_LIMITS.fetchRetryBaseMs * 2 ** (attempt - 1),
+                ),
+                delayMs = randomInteger(0.8 * baseDelay, 1.2 * baseDelay);
             appendLog(
                 "warn",
                 `${failureLabel}，${delayMs} ms 后重试 ${attempt + 1}/${RUNTIME_LIMITS.fetchMaxAttempts}：${lastError.message}`,
@@ -2198,9 +2169,9 @@ function createEhTagTransferModule() {
         url,
         signal,
         {
-            beforeAttempt: beforeAttempt,
-            acceptStatus: acceptStatus = () => false,
-            failureLabel: failureLabel = "读取失败",
+            beforeAttempt,
+            acceptStatus = () => false,
+            failureLabel = "读取失败",
         } = {},
     ) {
         const parsedUrl = new URL(url, location.href);
@@ -2332,10 +2303,6 @@ function createEhTagTransferModule() {
             pageText,
         );
     }
-    function rememberGallerySnapshot(snapshot) {
-        if (snapshot?.gallery) gallerySnapshotCache.set(snapshot.gallery, snapshot);
-        return snapshot;
-    }
     async function fetchGallerySnapshot(url, signal) {
         const response = await fetchHtml(url, signal, {
                 acceptStatus: isUnavailableGalleryStatus,
@@ -2348,14 +2315,16 @@ function createEhTagTransferModule() {
             error.name = "GalleryStructureError";
             throw error;
         }
-        return rememberGallerySnapshot({
+        const snapshot = {
             url: response.url,
             status: response.status,
             unavailable: unavailable,
             doc: documentNode,
             gallery: unavailable ? null : parseGalleryDocument(documentNode, response.url),
             writeContext: unavailable ? null : parseGalleryWriteContext(documentNode, response.url),
-        });
+        };
+        if (snapshot.gallery) gallerySnapshotCache.set(snapshot.gallery, snapshot);
+        return snapshot;
     }
     function isRedBadTagAnchor(anchor) {
         return (
@@ -2365,7 +2334,7 @@ function createEhTagTransferModule() {
     }
     function buildBadTagAudit(
         galleries,
-        { uid: uid = "", repositoryUrl: repositoryUrl = "", recordedAt: recordedAt = new Date() } = {},
+        { uid = "", repositoryUrl = "", recordedAt = new Date() } = {},
     ) {
         const normalizedGalleries = [];
         for (const gallery of galleries || []) {
@@ -2389,7 +2358,7 @@ function createEhTagTransferModule() {
                 galleryUrl: galleryUrl,
                 title: title,
                 titleLength: Array.from(title).length,
-                normalizedTitleLength: normalizeComparableTitle(title).length,
+                normalizedTitleLength: normalizeComparableText(title).length,
                 tagCount: tags.length,
                 badTagCount: badTags.length,
                 tags: tags,
@@ -2529,7 +2498,7 @@ function createEhTagTransferModule() {
             seenTitleKeys = new Set();
         function addQuery(field, stage, label) {
             const title = field?.identity.searchParts[0] || field?.identity.coreParts[0],
-                titleKey = normalizeComparableTitle(title);
+                titleKey = normalizeComparableText(title);
             if (!titleKey || seenTitleKeys.has(titleKey)) return;
             seenTitleKeys.add(titleKey);
             const queryText = `title:"${normalizeWhitespace(title).replace(/["\\]/g, " ")}"`;
@@ -2554,39 +2523,40 @@ function createEhTagTransferModule() {
         );
         return queries;
     }
-    function shouldContinueSearchPages(
-        {
-            query: query,
-            page: page,
-            maxPages: maxPages,
-            hasNext: hasNext,
-            newResultCount: newResultCount,
-            hasStrongCandidate: hasStrongCandidate,
-        },
-        config = DEFAULT_CONFIG,
+    function canContinueSearchPages(page, maxPages, hasNext, newResultCount) {
+        return page < maxPages && hasNext && newResultCount > 0;
+    }
+    function createTaskCandidateAssessor(
+        currentGallery,
+        config,
+        calculateAssessment = assessCandidate,
     ) {
-        return !(
-            !hasNext ||
-            page >= maxPages ||
-            newResultCount <= 0 ||
-            (query.kind === "title" &&
-                query.coreLength > config.genericTitleLength &&
-                hasStrongCandidate)
-        );
+        const assessmentCache = new WeakMap();
+        return (candidate) => {
+            if (!assessmentCache.has(candidate)) {
+                assessmentCache.set(
+                    candidate,
+                    calculateAssessment(currentGallery, candidate, config),
+                );
+            }
+            return assessmentCache.get(candidate);
+        };
     }
-    function shouldRunJapaneseSearch(currentGallery, candidates, config = DEFAULT_CONFIG) {
-        return !Array.from(candidates || []).some((candidate) =>
-            isStrongPreviewCandidate(currentGallery, candidate, config),
-        );
-    }
-    function isStrongPreviewCandidate(currentGallery, candidate, config) {
+    function isStrongPreviewCandidate(currentGallery, candidate, getCandidateAssessment) {
         return (
             candidate.url !== currentGallery.url &&
             !hasSameExplicitLanguage(currentGallery, candidate) &&
-            assessCandidate(currentGallery, candidate, config).accepted
+            getCandidateAssessment(candidate).accepted
         );
     }
-    async function fetchSearchQueryResults(query, maxPages, signal, currentGallery, config) {
+    async function fetchSearchQueryResults(
+        query,
+        maxPages,
+        signal,
+        currentGallery,
+        config,
+        getCandidateAssessment = createTaskCandidateAssessor(currentGallery, config),
+    ) {
         let nextUrl = buildSearchUrl(query.text, location.origin);
         const visitedUrls = new Set(),
             resultsByUrl = new Map();
@@ -2598,16 +2568,20 @@ function createEhTagTransferModule() {
                     beforeAttempt: (attemptSignal) =>
                         waitForSearchThrottle(attemptSignal, config.searchRequestIntervalMs),
                 }),
-                pageResults = parseSearchResults(documentNode, location.origin);
+                pageResults = parseGalleryList(documentNode, location.origin),
+                pageCandidates = [];
             let newResultCount = 0;
             for (const result of pageResults) {
-                if (!resultsByUrl.has(result.url)) {
-                    resultsByUrl.set(result.url, {
+                let candidate = resultsByUrl.get(result.url);
+                if (!candidate) {
+                    candidate = {
                         ...result,
                         matchedQueries: [query.text],
-                    });
+                    };
+                    resultsByUrl.set(result.url, candidate);
                     newResultCount++;
                 }
+                pageCandidates.push(candidate);
             }
             const nextHref = documentNode.querySelector("#dnext[href]")?.getAttribute("href");
             let followingUrl = "";
@@ -2619,19 +2593,17 @@ function createEhTagTransferModule() {
                     followingUrl = nextPageUrl.href;
                 }
             }
+            const hasNext = Boolean(followingUrl && !visitedUrls.has(followingUrl));
+            if (!canContinueSearchPages(page, maxPages, hasNext, newResultCount)) break;
             if (
-                !shouldContinueSearchPages(
-                    {
-                        query: query,
-                        page: page,
-                        maxPages: maxPages,
-                        hasNext: Boolean(followingUrl && !visitedUrls.has(followingUrl)),
-                        newResultCount: newResultCount,
-                        hasStrongCandidate: pageResults.some((candidate) =>
-                            isStrongPreviewCandidate(currentGallery, candidate, config),
-                        ),
-                    },
-                    config,
+                query.kind === "title" &&
+                query.coreLength > config.genericTitleLength &&
+                pageCandidates.some((candidate) =>
+                    isStrongPreviewCandidate(
+                        currentGallery,
+                        candidate,
+                        getCandidateAssessment,
+                    ),
                 )
             )
                 break;
@@ -2658,9 +2630,9 @@ function createEhTagTransferModule() {
     }
     // 5. 直连写入与错误标签处理
     function getBadTagCorrectionStrategy({
-        exists: exists,
-        upvoted: upvoted,
-        downvoted: downvoted,
+        exists,
+        upvoted,
+        downvoted,
     }) {
         return downvoted
             ? "already-downvoted"
@@ -2730,7 +2702,7 @@ function createEhTagTransferModule() {
                     }
                     if (responsePayload?.error != null) {
                         const apiError = new Error(String(responsePayload.error));
-                        apiError.name = isBadTagVoteLockedMessage(apiError.message)
+                        apiError.name = /vote can no longer be withdrawn/i.test(apiError.message)
                             ? "BadTagVoteLockedError"
                             : "TagVoteApiError";
                         rejectRequest(apiError);
@@ -2770,77 +2742,37 @@ function createEhTagTransferModule() {
         const parsedUrl = new URL(record.galleryUrl),
             sameOriginUrl = `${location.origin}${parsedUrl.pathname}`;
         let snapshot = await fetchGallerySnapshot(sameOriginUrl, signal);
-        if (snapshot.unavailable)
-            return {
-                status: "gallery-unavailable",
-            };
+        if (snapshot.unavailable) return { status: "gallery-unavailable" };
         let voteState = getTagVoteState(snapshot.doc, record.tag);
         const strategy = getBadTagCorrectionStrategy(voteState);
-        if (strategy === "already-downvoted")
-            return {
-                status: "already-downvoted",
-            };
-        if (strategy === "already-missing")
-            return {
-                status: "already-missing",
-            };
-        if (!snapshot.writeContext)
-            return {
-                status: "vote-api-unavailable",
-            };
+        if (strategy === "already-downvoted") return { status: "already-downvoted" };
+        if (strategy === "already-missing") return { status: "already-missing" };
+        if (!snapshot.writeContext) return { status: "vote-api-unavailable" };
         let withdrewUpvote = false;
         if (strategy === "withdraw-and-downvote") {
             const withdrawResult = await submitTagVoteAndVerify(snapshot, [record.tag], -1, signal);
             snapshot = withdrawResult.snapshot;
-            if (snapshot.unavailable)
-                return {
-                    status: "gallery-unavailable",
-                };
+            if (snapshot.unavailable) return { status: "gallery-unavailable" };
             voteState = getTagVoteState(snapshot.doc, record.tag);
-            if (!voteState.exists)
-                return {
-                    status: "already-missing",
-                };
-            if (voteState.downvoted)
-                return {
-                    status: "withdrawn-and-downvoted",
-                };
+            if (!voteState.exists) return { status: "already-missing" };
+            if (voteState.downvoted) return { status: "withdrawn-and-downvoted" };
             if (voteState.upvoted)
                 throw withdrawResult.voteError || new Error("撤销赞成票后状态没有变化");
             withdrewUpvote = true;
-            if (!snapshot.writeContext)
-                return {
-                    status: "vote-api-unavailable",
-                };
+            if (!snapshot.writeContext) return { status: "vote-api-unavailable" };
         }
         voteState = getTagVoteState(snapshot.doc, record.tag);
-        if (!voteState.exists)
-            return {
-                status: "already-missing",
-            };
+        if (!voteState.exists) return { status: "already-missing" };
         if (voteState.downvoted)
-            return {
-                status: withdrewUpvote ? "withdrawn-and-downvoted" : "already-downvoted",
-            };
+            return { status: withdrewUpvote ? "withdrawn-and-downvoted" : "already-downvoted" };
         const voteResult = await submitTagVoteAndVerify(snapshot, [record.tag], -1, signal);
         snapshot = voteResult.snapshot;
-        if (snapshot.unavailable)
-            return {
-                status: "gallery-unavailable",
-            };
+        if (snapshot.unavailable) return { status: "gallery-unavailable" };
         voteState = getTagVoteState(snapshot.doc, record.tag);
-        if (!voteState.exists)
-            return {
-                status: "already-missing",
-            };
+        if (!voteState.exists) return { status: "already-missing" };
         if (!voteState.downvoted)
             throw voteResult.voteError || new Error("踩标签后未观察到反对票状态");
-        return {
-            status: withdrewUpvote ? "withdrawn-and-downvoted" : "downvoted",
-        };
-    }
-    function isTerminalBadTagStatus(status) {
-        return BAD_TAG_OUTCOME_META[status]?.terminal === true;
+        return { status: withdrewUpvote ? "withdrawn-and-downvoted" : "downvoted" };
     }
     function logBadTagResult(level, record, message) {
         appendLog(level, `${record.gid} ${record.tag}：${message}`, record.galleryUrl, true);
@@ -2894,7 +2826,7 @@ function createEhTagTransferModule() {
             "错误标签页读取失败",
         );
     }
-    async function processBadTags(config, signal, { reviewKnown: reviewKnown = false } = {}) {
+    async function processBadTags(config, signal, { reviewKnown = false } = {}) {
         if (!config.badTagEnabled) return;
         if (!config.uid) {
             appendLog("warn", "已启用错误标签检查，但脚本参数区尚未填写用户 UID");
@@ -2938,7 +2870,7 @@ function createEhTagTransferModule() {
                         level: "warn",
                         message: `未知结果 ${result.status}`,
                     };
-                if (isTerminalBadTagStatus(result.status)) markKnown(record);
+                if (outcomeMeta.terminal === true) markKnown(record);
                 logBadTagResult(outcomeMeta.level, record, outcomeMeta.message);
             } catch (error) {
                 if (["AbortError", "RequestBudgetError"].includes(error.name)) throw error;
@@ -2961,9 +2893,6 @@ function createEhTagTransferModule() {
             ? batch.remaining
             : selectBadTagRecords(records, state, false).length;
         if (remaining) setStatus(`尚有 ${remaining} 条错误标签，将在后续周期继续处理`);
-    }
-    function isBadTagVoteLockedMessage(message) {
-        return /vote can no longer be withdrawn/i.test(String(message || ""));
     }
     function findTagsNeedingUpvote(documentNode, tags, respectDownvotes) {
         const tagMap = new Map(parseGalleryTags(documentNode).map((tag) => [tag.tag, tag]));
@@ -3052,15 +2981,15 @@ function createEhTagTransferModule() {
     }
     async function transferTagsToTarget(target, transferContext) {
         const {
-                current: current,
-                union: union,
-                blacklist: blacklist,
-                sensitiveSourceUrls: sensitiveSourceUrls,
-                isTransferTarget: isTransferTarget,
-                targetPolicy: targetPolicy,
-                randomSkippedTags: randomSkippedTags,
-                config: config,
-                signal: signal,
+                current,
+                union,
+                blacklist,
+                sensitiveSourceUrls,
+                isTransferTarget,
+                targetPolicy,
+                randomSkippedTags,
+                config,
+                signal,
             } = transferContext,
             cachedSnapshot = gallerySnapshotCache.get(target),
             randomSkippedTagSet = randomSkippedTags || new Set();
@@ -3214,11 +3143,17 @@ function createEhTagTransferModule() {
         };
     }
     // 6. 搜索管线与迁移编排
-    async function discoverSearchCandidates(currentGallery, config, signal) {
+    async function discoverSearchCandidates(
+        currentGallery,
+        config,
+        signal,
+        getCandidateAssessment = createTaskCandidateAssessor(currentGallery, config),
+    ) {
         const queries = buildSearchQueries(currentGallery),
             candidatesByUrl = new Map(),
             sameLanguageUrls = new Set();
         async function runQueryStage(stage) {
+            let stageStatus = "empty";
             for (const query of queries.filter((candidateQuery) => candidateQuery.stage === stage)) {
                 if (signal.aborted) throw createAbortError();
                 setStatus(`搜索 ${query.label}`);
@@ -3229,7 +3164,9 @@ function createEhTagTransferModule() {
                         signal,
                         currentGallery,
                         config,
+                        getCandidateAssessment,
                     );
+                    if (searchResult.results.length) stageStatus = "found";
                     for (const candidate of searchResult.results) {
                         if (candidate.url === currentGallery.url) continue;
                         if (hasSameExplicitLanguage(currentGallery, candidate)) {
@@ -3248,23 +3185,39 @@ function createEhTagTransferModule() {
                     }
                 } catch (error) {
                     if (["AbortError", "RequestBudgetError"].includes(error.name)) throw error;
+                    stageStatus = "failed";
                     appendLog("warn", `搜索失败：${error.message}`);
                 }
             }
+            return stageStatus;
         }
-        await runQueryStage("english");
-        shouldRunJapaneseSearch(currentGallery, candidatesByUrl.values(), config) &&
-            (await runQueryStage("japanese"));
+        const primarySearchStatus = await runQueryStage("english");
+        if (primarySearchStatus === "empty") {
+            const secondarySearchStatus = await runQueryStage("japanese");
+            if (secondarySearchStatus === "empty") {
+                appendLog(
+                    "error",
+                    "主标题与副标题均未搜索到结果",
+                    currentGallery.url,
+                    true,
+                );
+            }
+        }
         setStatus(
             `搜索得到 ${candidatesByUrl.size} 个去重候选` +
                 (sameLanguageUrls.size ? `，提前跳过同语言 ${sameLanguageUrls.size} 个` : ""),
         );
         return Array.from(candidatesByUrl.values());
     }
-    function prefilterSearchCandidates(currentGallery, candidates, config) {
+    function prefilterSearchCandidates(
+        currentGallery,
+        candidates,
+        config,
+        getCandidateAssessment = createTaskCandidateAssessor(currentGallery, config),
+    ) {
         const acceptedCandidates = [];
         for (const candidate of candidates) {
-            const assessment = assessCandidate(currentGallery, candidate, config);
+            const assessment = getCandidateAssessment(candidate);
             if (assessment.accepted) {
                 acceptedCandidates.push({ ...candidate, assessment: assessment });
             }
@@ -3295,8 +3248,10 @@ function createEhTagTransferModule() {
         return selectedCandidates;
     }
     async function loadProgressiveCandidateDetails(currentGallery, candidates, config, signal) {
-        const fullCandidates = [];
-        for (const candidate of chooseProgressiveDetailCandidates(candidates, config)) {
+        const detailCandidates = chooseProgressiveDetailCandidates(candidates, config),
+            fullCandidates = [];
+        for (let candidateIndex = 0; candidateIndex < detailCandidates.length; candidateIndex++) {
+            const candidate = detailCandidates[candidateIndex];
             if (signal.aborted) throw createAbortError();
             try {
                 const snapshot = await fetchGallerySnapshot(candidate.url, signal);
@@ -3319,11 +3274,12 @@ function createEhTagTransferModule() {
                 if (["AbortError", "RequestBudgetError"].includes(error.name)) throw error;
                 appendLog("warn", `无法读取候选 ${candidate.url}：${error.message}`);
             }
-            await randomDelay(
-                RUNTIME_LIMITS.discoveryDelayMinMs,
-                RUNTIME_LIMITS.discoveryDelayMaxMs,
-                signal,
-            );
+            if (candidateIndex + 1 < detailCandidates.length)
+                await randomDelay(
+                    RUNTIME_LIMITS.discoveryDelayMinMs,
+                    RUNTIME_LIMITS.discoveryDelayMaxMs,
+                    signal,
+                );
         }
         return fullCandidates;
     }
@@ -3335,30 +3291,30 @@ function createEhTagTransferModule() {
         );
         return selection.accepted;
     }
-    function announceSearchPhase(phase) {
-        setStatus(`搜索阶段：${phase}`);
-    }
     async function runSearchPipeline(currentGallery, config, signal) {
-        announceSearchPhase(SEARCH_PHASES.discovery);
+        const getCandidateAssessment = createTaskCandidateAssessor(currentGallery, config);
+        setStatus(`搜索阶段：${SEARCH_PHASES.discovery}`);
         const discoveredCandidates = await SEARCH_PIPELINE.discover(
             currentGallery,
             config,
             signal,
+            getCandidateAssessment,
         );
-        announceSearchPhase(SEARCH_PHASES.prefilter);
+        setStatus(`搜索阶段：${SEARCH_PHASES.prefilter}`);
         const prefilteredCandidates = SEARCH_PIPELINE.prefilter(
             currentGallery,
             discoveredCandidates,
             config,
+            getCandidateAssessment,
         );
-        announceSearchPhase(SEARCH_PHASES.progressiveDetails);
+        setStatus(`搜索阶段：${SEARCH_PHASES.progressiveDetails}`);
         const detailedCandidates = await SEARCH_PIPELINE.loadProgressiveDetails(
             currentGallery,
             prefilteredCandidates,
             config,
             signal,
         );
-        announceSearchPhase(SEARCH_PHASES.finalSelection);
+        setStatus(`搜索阶段：${SEARCH_PHASES.finalSelection}`);
         return SEARCH_PIPELINE.selectFinal(detailedCandidates, config);
     }
     async function executeTransferPlan(runId, currentGallery, config, signal) {
@@ -3503,7 +3459,7 @@ function createEhTagTransferModule() {
     async function processCurrentGallery(runId, config, signal) {
         setStatus("读取当前画廊");
         const currentGallery = validateGallery(parseGalleryDocument(document, location.href));
-        rememberGallerySnapshot({
+        gallerySnapshotCache.set(currentGallery, {
             url: currentGallery.url,
             status: 200,
             unavailable: false,
@@ -3525,7 +3481,7 @@ function createEhTagTransferModule() {
         if (!homeState.initializedAt) {
             const mergeResult = mergeHomepageResults(
                 homeState,
-                parseSearchResults(document, location.origin),
+                parseGalleryList(document, location.origin),
                 config,
             );
             homeState = saveHomeState(mergeResult.home);
@@ -3545,7 +3501,7 @@ function createEhTagTransferModule() {
         const results = [];
         for (let pageIndex = 0; pageIndex < config.homeScanPages && nextUrl; pageIndex++) {
             const documentNode = await fetchDocument(nextUrl, signal);
-            const pageResults = parseSearchResults(documentNode, location.origin);
+            const pageResults = parseGalleryList(documentNode, location.origin);
             results.push(...pageResults);
             if (pageResults.some((result) => seenGids.has(galleryIdFromUrl(result.url)))) {
                 reachedSeenGallery = true;
@@ -3835,10 +3791,10 @@ function createEhTagTransferModule() {
     function buildLogExportText(
         entries,
         {
-            version: version = SCRIPT_VERSION,
-            site: site = "",
-            exportedAt: exportedAt = new Date(),
-            badTagAudit: badTagAudit = null,
+            version = SCRIPT_VERSION,
+            site = "",
+            exportedAt = new Date(),
+            badTagAudit = null,
         } = {},
     ) {
         const date = exportedAt instanceof Date ? exportedAt : new Date(exportedAt),
@@ -3956,13 +3912,9 @@ function createEhTagTransferModule() {
         runtimeState.ui.logEntries.scrollTop = runtimeState.ui.logEntries.scrollHeight;
     }
     // 7. 定时调度、生命周期与面板
-    function clearScheduleTimer() {
-        clearTimeout(runtimeState.scheduleTimer);
-        runtimeState.scheduleTimer = null;
-    }
-    function clearLifecycleTimer() {
-        clearTimeout(runtimeState.lifecycleTimer);
-        runtimeState.lifecycleTimer = null;
+    function clearRuntimeTimer(timerName) {
+        clearTimeout(runtimeState[timerName]);
+        runtimeState[timerName] = null;
     }
     function persistScheduleState(nextRunAt, scheduleWindow = runtimeState.scheduleWindow) {
         if (runtimeState.pageMode !== "home") return;
@@ -4150,7 +4102,7 @@ function createEhTagTransferModule() {
         );
     }
     function scheduleNextRun(config, reuseExisting = false) {
-        clearScheduleTimer();
+        clearRuntimeTimer("scheduleTimer");
         if (!config.scheduleEnabled || runtimeState.schedulerPaused || runtimeState.globallyPaused) {
             runtimeState.nextRunAt = 0;
             persistScheduleState(0);
@@ -4240,14 +4192,14 @@ function createEhTagTransferModule() {
         if (!config.scheduleEnabled) return;
         const scheduleState = getScheduleState(getPersistedScheduleState().nextRunAt);
         if (scheduleState === "due") {
-            clearScheduleTimer();
+            clearRuntimeTimer("scheduleTimer");
             runWorker();
         } else if (scheduleState !== "waiting" || !runtimeState.scheduleTimer) {
             scheduleNextRun(config, true);
         }
     }
     function scheduleLifecycleHeartbeat() {
-        clearLifecycleTimer();
+        clearRuntimeTimer("lifecycleTimer");
         if (runtimeState.lifecycleSuspended) return;
         runtimeState.lifecycleTimer = setTimeout(() => {
             runtimeState.lifecycleTimer = null;
@@ -4318,7 +4270,7 @@ function createEhTagTransferModule() {
         runtimeState.autoTimer = null;
         if (pauseScheduler) {
             runtimeState.schedulerPaused = true;
-            clearScheduleTimer();
+            clearRuntimeTimer("scheduleTimer");
             runtimeState.nextRunAt = 0;
             persistScheduleState(0);
             clearRunMarker(runtimeState.workerLockOwner);
@@ -4383,7 +4335,7 @@ function createEhTagTransferModule() {
                 return;
             }
         }
-        clearScheduleTimer();
+        clearRuntimeTimer("scheduleTimer");
         stopWorker("重新开始", true, false);
         runtimeState.schedulerPaused = false;
         const runId = runtimeState.runId;
@@ -4509,8 +4461,8 @@ function createEhTagTransferModule() {
             runtimeState.running || Boolean(runtimeState.autoTimer);
         clearTimeout(runtimeState.autoTimer);
         runtimeState.autoTimer = null;
-        clearScheduleTimer();
-        clearLifecycleTimer();
+        clearRuntimeTimer("scheduleTimer");
+        clearRuntimeTimer("lifecycleTimer");
         runtimeState.runId++;
         runtimeState.controller?.abort();
         runtimeState.controller = null;
@@ -4724,6 +4676,8 @@ function createEhTagTransferModule() {
         config: Object.freeze({ sanitize: sanitizeConfig, resolve: resolveConfig }),
         matching: Object.freeze({
             assessCandidate: assessCandidate,
+            compareTitles: compareTitleSets,
+            titleDistanceRatio: titleDistanceRatio,
             selectBestByLanguage: selectBestLanguageCandidates,
             selectForTransfer: selectTransferCandidates,
         }),
@@ -4732,6 +4686,9 @@ function createEhTagTransferModule() {
             pipeline: SEARCH_PIPELINE,
             buildQueries: buildSearchQueries,
             buildUrl: buildSearchUrl,
+            canContinuePages: canContinueSearchPages,
+            createTaskAssessor: createTaskCandidateAssessor,
+            listings: Object.freeze({ parse: parseGalleryList }),
         }),
         transfer: Object.freeze({
             compileBlacklist: compileBlacklist,

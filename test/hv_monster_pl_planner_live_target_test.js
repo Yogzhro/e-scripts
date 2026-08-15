@@ -116,6 +116,19 @@ const chaosSnapshot = chaosSnapshotParser({
 assert.deepEqual(chaosSnapshot.chaos, { Scavenging: 7 });
 assert.equal(chaosSnapshot.chaosTokens, 1234);
 
+const liveChaosRow = { textContent: '', querySelectorAll: (selector) => selector === '.mcu1' ? Array(16).fill({}) : [] };
+const liveChaosParser = loadFunction('parseMonsterUpgradeSnapshot', {
+  all: attributes,
+  CHAOS_CONFIGS: [{ key: 'Scavenging', query: 'affect' }],
+  chaosKeys: ['Scavenging'],
+  $all: (selector, doc) => selector === '#monsterstats_top tr' ? doc.rows
+    : selector === '#chaosupg td:nth-child(2)' ? [liveChaosRow]
+      : selector === '.mcu1' ? liveChaosRow.querySelectorAll(selector) : [],
+  parseNum: (value) => Number(String(value).replace(/[,+]/g, '')),
+});
+const liveChaosSnapshot = liveChaosParser({ rows, body: { textContent: '' } });
+assert.deepEqual(liveChaosSnapshot.chaos, { Scavenging: 16 });
+
 const solveExactAboveTarget = loadFunction('solveExact', {
   EPS: 1e-9,
   totalPL: (levels) => levels.pl,

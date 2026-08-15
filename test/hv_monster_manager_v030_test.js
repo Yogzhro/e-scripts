@@ -34,7 +34,7 @@ function positiveNumber(value) {
   return Number.isFinite(number) && number > 0 ? number : 0;
 }
 
-assert(source.includes('// @version      0.3.5.0'));
+assert(source.includes('// @version      0.3.6.7'));
 
 assert(!source.includes('LANGUAGE_STORE_KEY'));
 assert(!source.includes('function languageFromChoice('));
@@ -65,7 +65,10 @@ assert(
 );
 assert(source.includes('headingMonsterRename: ["Rename", "重命名"]'));
 
-assert.match(source, /\.hvmepp-top-actions\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/s);
+assert.match(source, /\.hvmepp-top-actions\{display:grid;grid-template-columns:repeat\(5,minmax\(0,1fr\)\)/);
+assert(!plannerControlsSource.includes("class: 'hvmepp-resource-actions'"));
+assert(plannerControlsSource.includes('actions.append(actionButtons.calculate, actionButtons.refresh, actionButtons.upgrade, actionButtons.direct, actionButtons.order)'));
+assert(!plannerControlsSource.includes("class: 'hvmepp-execution-actions'"));
 
 const customState = { orderPriceSource: 'custom', orderUnitPrices: { STR: 1.23 } };
 let customSaved = 0;
@@ -85,7 +88,11 @@ assert.equal(customStatus, 'statusCustomOrderPrices');
 assert(!source.includes('for ${available}/${needed} visible batch(es)'));
 assert(source.includes('Read order books first'));
 assert(source.includes('请先读取订单簿'));
+assert(source.includes('Order book coverage:'));
+assert(source.includes('订单簿覆盖：'));
 assert(source.includes('tableEstimatedCost: ["Full Spend Estimate", "完整预估消耗"]'));
+assert.match(source, /estimate && estimate\.remainingBatches === 0\s*\? formatMoney\(estimate\.estimatedCost\)/);
+assert.match(source, /t\('estimateCoverage', \{ available: estimate\?\.coveredBatches \|\| 0, needed: row\.batches \|\| 0 \}\)/);
 
 const planAskSweep = Function(
   'positiveNumber',
@@ -98,5 +105,17 @@ const partial = planAskSweep(20, 100, [
 assert.equal(partial.coveredBatches, 15);
 assert.equal(partial.remainingBatches, 5);
 assert.equal(partial.estimatedCost, 1650);
+
+const sumCrystalBuyCost = Function(
+  `"use strict"; return (${extractFunction('sumCrystalBuyCost')});`
+)();
+assert.equal(sumCrystalBuyCost([
+  { required: 10, shortage: 5, batches: 3, orderBatchPrice: 120, orderBookLoaded: false },
+  { required: 10, shortage: 2, batches: 2, orderBatchPrice: 80, orderBookLoaded: false },
+]), 520, 'total cost must use buy price per batch and required batches without order-book coverage');
+assert.equal(sumCrystalBuyCost([{ required: 10, shortage: 0 }]), 0);
+assert.equal(sumCrystalBuyCost([{ required: 10, shortage: null }]), null);
+assert.equal(sumCrystalBuyCost([{ required: 10, shortage: 5, batches: null, orderBatchPrice: 120 }]), null);
+assert.equal(sumCrystalBuyCost([{ required: 10, shortage: 5, batches: 3, orderBatchPrice: null }]), null);
 
 console.log('HV Monster Manager baseline behavior tests passed.');

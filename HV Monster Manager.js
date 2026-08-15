@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         HV Monster Manager
 // @namespace    https://hentaiverse.org/
-// @version      0.3.5.0
+// @version      0.3.6.7
 // @description  HV Utils 4.2.4 add-on for exact-target PL and chaos planning, crystal orders and monster renaming.
 // @author       KirisameReiko
 // @include      https://hentaiverse.org/?s=Bazaar&ss=ml
@@ -30,7 +30,7 @@
     || (currentUrl.hash && !/^#planner\/[1-9]\d*$/.test(currentUrl.hash))) return;
 
   const HVUT_REQUIRED_VERSION = '4.2.4';
-  const ADDON_VERSION = '0.3.5.0';
+  const ADDON_VERSION = '0.3.6.7';
   const HVUT = Object.freeze({
     side: '.hvut-ml-side',
     upgraderButton: '#hvut-ml-up-button',
@@ -67,25 +67,25 @@
     ['END', '体质', 'Crystal of Fortitude', '体质水晶', 'pa_end', 1],
     ['INT', '智力', 'Crystal of Cunning', '智力水晶', 'pa_int', 1],
     ['WIS', '智慧', 'Crystal of Knowledge', '智慧水晶', 'pa_wis', 1],
-    ['FIRE', '火', 'Crystal of Flames', '火焰水晶', 'er_fire', 0],
-    ['COLD', '冰', 'Crystal of Frost', '冰冻水晶', 'er_cold', 0],
-    ['ELEC', '雷', 'Crystal of Lightning', '闪电水晶', 'er_elec', 0],
-    ['WIND', '风', 'Crystal of Tempest', '疾风水晶', 'er_wind', 0],
-    ['HOLY', '圣', 'Crystal of Devotion', '神圣水晶', 'er_holy', 0],
-    ['DARK', '暗', 'Crystal of Corruption', '暗黑水晶', 'er_dark', 0],
+    ['FIRE', '火焰', 'Crystal of Flames', '火焰水晶', 'er_fire', 0],
+    ['COLD', '冰冷', 'Crystal of Frost', '冰冻水晶', 'er_cold', 0],
+    ['ELEC', '闪电', 'Crystal of Lightning', '闪电水晶', 'er_elec', 0],
+    ['WIND', '疾风', 'Crystal of Tempest', '疾风水晶', 'er_wind', 0],
+    ['HOLY', '神圣', 'Crystal of Devotion', '神圣水晶', 'er_holy', 0],
+    ['DARK', '黑暗', 'Crystal of Corruption', '暗黑水晶', 'er_dark', 0],
   ];
   const CHAOS_CONFIGS = [
-    { key: 'Scavenging', zh: '拾荒', query: 'affect', max: 20 },
-    { key: 'Fortitude', zh: '坚韧', query: 'health', max: 20 },
-    { key: 'Brutality', zh: '残暴', query: 'damage', max: 20 },
+    { key: 'Scavenging', zh: '寻宝', query: 'affect', max: 20 },
+    { key: 'Fortitude', zh: '刚毅', query: 'health', max: 20 },
+    { key: 'Brutality', zh: '蛮横', query: 'damage', max: 20 },
     { key: 'Accuracy', zh: '命中', query: 'accur', max: 20 },
-    { key: 'Precision', zh: '精准', query: 'cevbl', max: 20 },
+    { key: 'Precision', zh: '精密', query: 'cevbl', max: 20 },
     { key: 'Overpower', zh: '压制', query: 'cpare', max: 20 },
     { key: 'Interception', zh: '拦截', query: 'parry', max: 20 },
-    { key: 'Dissipation', zh: '消散', query: 'resist', max: 20 },
+    { key: 'Dissipation', zh: '弥散', query: 'resist', max: 20 },
     { key: 'Evasion', zh: '闪避', query: 'evade', max: 20 },
     { key: 'Defense', zh: '防御', query: 'phymit', max: 20 },
-    { key: 'Warding', zh: '结界', query: 'magmit', max: 20 },
+    { key: 'Warding', zh: '魔防', query: 'magmit', max: 20 },
     { key: 'Swiftness', zh: '迅捷', query: 'atkspd', max: 20 },
   ];
   const primary = ATTRIBUTE_CONFIGS.filter((row) => row[5]).map((row) => row[0]);
@@ -98,13 +98,16 @@
   const chaosByKey = Object.fromEntries(CHAOS_CONFIGS.map((config) => [config.key, config]));
   const UPGRADE_CONFIGS = [
     ...ATTRIBUTE_CONFIGS.map(([key, zh, crystal, crystalZh, query, primaryAttr]) => ({
-      key, zh, crystal, crystalZh, query, group: primaryAttr ? 'primary' : 'elemental', max: primaryAttr ? 25 : 50,
+      key, label: key, zh, crystal, crystalZh, query, group: primaryAttr ? 'primary' : 'elemental', max: primaryAttr ? 25 : 50,
     })),
-    ...CHAOS_CONFIGS.map((config) => ({ ...config, group: 'chaos', resource: 'Chaos Token' })),
+    ...CHAOS_CONFIGS.map((config) => ({ ...config, label: config.key, group: 'chaos', resource: 'Chaos Token' })),
   ];
-  const UPGRADE_GROUPS = [
-    ['primary', 'Primary Attributes', '主要属性'], ['elemental', 'Elemental Mitigation', '元素减伤'], ['chaos', 'Chaos Upgrades', '混沌升级'],
+  const EDITOR_GROUP_CONFIGS = [
+    { key: 'primary', group: 'primary', label: 'Primary Attributes', zh: '主要属性' },
+    { key: 'elemental', group: 'elemental', label: 'Elemental Mitigation', zh: '元素减伤' },
+    { key: 'chaos', group: 'chaos', label: 'Chaos Upgrades', zh: '混沌升级' },
   ];
+  const EDITOR_TABLE_BANDS = [['primary', 'elemental'], ['chaos']];
   // Add new Easter eggs here, one string per line.
   const easterEggMessages = [
     'Isekaijoucho',
@@ -187,6 +190,7 @@
     renameIssueSourceMismatch: [({ line, slot, name, actual }) => `Line ${line}: monster #${slot} is currently "${actual}", not "${name}". Export a fresh template before renaming.`, ({ line, slot, name, actual }) => `第 ${line} 行：怪物 #${slot} 当前名称是“${actual}”，不是“${name}”；请重新导出最新模板后再改名。`],
     renameIssueAlreadyNamed: [({ line, name }) => `Line ${line}: "${name}" already has the requested name.`, ({ line, name }) => `第 ${line} 行：“${name}”已经是目标名称。`],
     buttonCalculatePlan: ["Calculate Exact Plan", "计算精确方案"],
+    buttonRefreshData: ["Refresh Data", "刷新数据"],
     buttonResetAll: ["Reset All", "全部重置"],
     buttonEqualize: ["Equalize Upward", "向上拉平"],
     buttonReviewUpgrade: ["Review Upgrade", "审核升级"],
@@ -201,6 +205,7 @@
     buttonBuying: [({ current, total }) => `Buying ${current}/${total}`, ({ current, total }) => `买入中 ${current}/${total}`],
     buttonPlacingOrders: [({ current, total }) => `Placing orders ${current}/${total}`, ({ current, total }) => `挂单中 ${current}/${total}`],
     totalCost: ["Total Cost:", "总成本："],
+    totalCostUnavailable: ["Unavailable", "无法完整预估"],
     tableName: ["Name", "名称"],
     tableProjectedPL: ["Projected PL", "投影 PL"],
     tableReset: ["Reset", "重置"],
@@ -221,6 +226,7 @@
     errorChaosLoad: ["Chaos levels or Chaos Token inventory could not be read for every selected monster.", "未能读取全部选中怪物的混沌等级或混沌令牌库存。"],
     stockUnknown: ["Not loaded", "未读取"],
     estimateUnavailable: ["Read order books first", "请先读取订单簿"],
+    estimateCoverage: [({ available, needed }) => `Order book coverage: ${available}/${needed} batches`, ({ available, needed }) => `订单簿覆盖：${available}/${needed} 批`],
     listSeparator: [", ", "，"],
     priceSource: {
       ask: ["Ask", "卖价"],
@@ -939,7 +945,7 @@
     renameMappingText: '',
     renameMappingFileName: '',
     drafts: new Map(), chaosTokens: null, loadingSlots: new Set(), draftMode: 'custom',
-    executionLogs: new Map(), resourceRowsExpanded: false, openDraftSlots: new Set(), draftMedia: null,
+    executionLogs: new Map(), resourceRowsExpanded: false, openDraftSlots: new Set(), draftSelectionKey: '',
   };
   document.documentElement.dataset.hvmmLanguage = state.language === 'zh-CN' ? 'zh' : 'en';
 
@@ -1286,18 +1292,14 @@
     const levelsComplete = all.every((attr) => Number.isFinite(levels[attr]));
     const inventoryComplete = all.every((attr) => Number.isFinite(stocks[attr]));
     const chaos = {};
+    const chaosRows = $all('#chaosupg td:nth-child(2)', doc);
     const chaosCells = $all('.mcu2', doc);
     CHAOS_CONFIGS.forEach((config, index) => {
-      const input = doc.querySelector(`[name="chaos_upgrade"][value="${config.query}"]`);
-      const scope = input?.closest('tr, form, .mcr') || chaosCells[index];
-      const candidates = [
-        scope?.querySelector?.('.mcu2')?.textContent,
-        scope?.textContent,
-        chaosCells[index]?.textContent,
-      ];
-      const match = candidates.map((value) => /(?:Level|Lv\.?|等级)?\s*(\d{1,2})/i.exec(String(value || '')))
-        .find(Boolean);
-      if (match) chaos[config.key] = parseInt(match[1], 10);
+      const row = chaosRows[index];
+      const active = row && ($all('.mcu1', row).length || $all('.mcu2', row).length);
+      const level = active || row?.textContent?.match(/(?:Level|Lv\.?|等级)?\s*(\d{1,2})/i)?.[1]
+        || chaosCells[index]?.textContent?.match(/(?:Level|Lv\.?|等级)?\s*(\d{1,2})/i)?.[1];
+      if (Number.isFinite(level) || /^\d+$/.test(String(level || ''))) chaos[config.key] = Number(level);
     });
     const bodyText = String(doc.body?.textContent || '');
     const resourceText = `${bodyText} ${$all('[onmouseover]', doc).map((node) => node.getAttribute('onmouseover') || '').join(' ')}`;
@@ -1323,6 +1325,15 @@
     const snapshot = parseMonsterUpgradeSnapshot(htmlToDoc(html));
     if (!snapshot.levels) throw new Error(t('errorParseMonster'));
     return snapshot;
+  }
+
+  async function fetchChaosTokenStock() {
+    const doc = htmlToDoc(await fetchText('?s=Character&ss=it'));
+    const row = $all('.itemlist tr', doc).find((entry) =>
+      /^(?:Chaos Token|混沌令牌)$/i.test(entry.cells?.[0]?.textContent?.trim() || '')
+    );
+    const stock = parseNum(row?.cells?.[1]?.textContent);
+    return Number.isFinite(stock) ? Math.max(0, Math.floor(stock)) : null;
   }
 
   function getMonsterMeta(slot) {
@@ -1474,6 +1485,14 @@
       renderUpgradeEditor();
       renderUpgradeResources(null);
       return [];
+    }
+    if (force || runtime.chaosTokens === null) {
+      try {
+        runtime.chaosTokens = await fetchChaosTokenStock();
+      } catch (error) {
+        runtime.chaosTokens = null;
+        logWarning('monster.chaos_token_read_failed', 'Chaos Token inventory could not be read.', {}, error);
+      }
     }
     const items = slots.filter((slot) => force || runtime.drafts.get(String(slot))?.status !== 'ready');
     await mapLimit(items, DRAFT_MAX_CONNECTIONS, async (slot) => {
@@ -1911,6 +1930,14 @@
         },
       };
     });
+  }
+
+  function sumCrystalBuyCost(rows) {
+    const required = rows.filter((row) => row.required > 0);
+    if (required.some((row) => row.shortage === null)) return null;
+    const shortages = required.filter((row) => row.shortage > 0);
+    if (shortages.some((row) => !row.batches || !row.orderBatchPrice)) return null;
+    return shortages.reduce((sum, row) => sum + row.batches * row.orderBatchPrice, 0);
   }
 
   function getCrystalShortages(rows) {
@@ -2847,16 +2874,18 @@
     if (n) n.textContent = text || '';
   }
 
-  function renderLogSummary() {
+  function renderLogSummary(plan = runtime.lastPlan) {
     const node = $('#hvmepp-log-summary');
     if (!node) return;
     const record = runtime.monsters.get(String(state.selectedMonsterSlots[0] || ''));
     const current = record ? totalPL(record.levels) : 0;
+    const totalCost = plan?.ok ? sumCrystalBuyCost(getCrystalPlanRows(plan)) : null;
     node.replaceChildren(
       `${t('labelCurrentPL')}: `, elt('b', { text: formatPL(current) }),
       `  ${t('labelTargetPL')}: `, elt('b', { text: formatPL(state.targetPL || 0) }),
       `  ${t('labelNeedPL')}: `, elt('b', { text: formatPL((Number(state.targetPL) || 0) - current) }),
-      `  ${t('labelMaxPL')}: `, elt('b', { text: formatPL(maxPL) })
+      `  ${t('labelMaxPL')}: `, elt('b', { text: formatPL(maxPL) }),
+      `  ${t('totalCost')} `, elt('b', { text: totalCost === null ? t('totalCostUnavailable') : formatMoney(totalCost) })
     );
   }
 
@@ -2878,7 +2907,10 @@
       detail: { language: document.documentElement.dataset.hvmmLanguage },
     }));
     refreshLocalizedText({ rerenderResult: false });
-    if (runtime.panelMode === 'planner' && state.selectedMonsterSlots.length) calculate();
+    if (runtime.panelMode === 'planner') {
+      if (state.selectedMonsterSlots.length) calculate();
+      else renderUpgradeEditor();
+    }
     setStatus(t('statusLanguageChanged'));
   }
 
@@ -2931,8 +2963,9 @@
     renderLogSummary();
     syncMonsterSelection();
 
-    if (rerenderResult && runtime.lastPlan && $('#hvmepp-upgrade-result')?.hasChildNodes()) {
-      renderPlan(runtime.lastPlan);
+    if (rerenderResult && runtime.panelMode === 'planner' && $('#hvmepp-upgrade-section')) {
+      renderUpgradeEditor();
+      renderUpgradeResources(runtime.lastPlan);
     }
   }
 
@@ -3058,122 +3091,107 @@
     return t({ pl: 'draftExact', 'chaos-only': 'draftChaosOnly', none: 'draftUnchanged', invalid: 'draftInvalid' }[status] || 'draftReady');
   }
 
-  const upgradeGroupLabel = (group) => group[state.language === 'zh-CN' ? 2 : 1];
-  const upgradeItemLabel = (config) => state.language === 'zh-CN' && config.zh ? `${config.key} · ${config.zh}` : config.key;
+  const upgradeItemLabel = (config) => state.language === 'zh-CN' && config.zh ? config.zh : config.label;
+  const editorGroupLabel = (group) => state.language === 'zh-CN' ? group.zh : group.label;
+  const getEditorGroupConfigs = (group) => {
+    const items = UPGRADE_CONFIGS.filter(({ group: key }) => key === group.group);
+    return group.length ? items.slice(group.offset, group.offset + group.length) : items;
+  };
 
-  function renderDraftInput(draft, config, compact = false) {
-    return elt('label', { class: 'hvmepp-upgrade-cell' }, [
-      ...(compact ? [elt('span', { text: upgradeItemLabel(config) })] : []),
-      elt('span', { class: 'hvmepp-cell-current', text: `${draft.current[config.key]} →` }),
-      elt('input', {
-        type: 'number', min: draft.current[config.key], max: config.max, step: 1,
-        value: draft.raw?.[config.key] ?? draft.target[config.key],
-        class: draft.invalid?.[config.key] ? 'hvmepp-invalid' : '',
-        dataset: { slot: draft.slot, key: config.key },
-        ariaLabel: `${config.key}: ${draft.current[config.key]}–${config.max}`,
-        ariaInvalid: String(Boolean(draft.invalid?.[config.key])),
-      }),
-    ]);
-  }
-
-  function populateMobileDraftCard(card, draft) {
-    if (card.querySelector('.hvmepp-upgrade-groups')) return;
-    const groups = elt('div', { class: 'hvmepp-upgrade-groups' });
-    UPGRADE_GROUPS.forEach((group) => groups.appendChild(elt('fieldset', {}, [
-      elt('legend', { text: upgradeGroupLabel(group) }),
-      ...UPGRADE_CONFIGS.filter((config) => config.group === group[0]).map((config) => renderDraftInput(draft, config, true)),
-    ])));
-    card.appendChild(groups);
+  function renderDraftTable(draft) {
+    const bands = EDITOR_TABLE_BANDS.map((groupKeys) => {
+      const groupRow = elt('tr', { class: 'hvmepp-draft-group-row' });
+      const itemRow = elt('tr', { class: 'hvmepp-draft-item-row' });
+      const valueRow = elt('tr', { class: 'hvmepp-draft-value-row' });
+      groupKeys.map((key) => EDITOR_GROUP_CONFIGS.find((group) => group.key === key)).forEach((group) => {
+        const configs = getEditorGroupConfigs(group);
+        groupRow.appendChild(elt('th', {
+          colspan: configs.length, scope: 'colgroup', text: editorGroupLabel(group), dataset: { group: group.key },
+        }));
+        configs.forEach((config, index) => {
+          const label = upgradeItemLabel(config);
+          const className = index === configs.length - 1 ? 'hvmepp-group-end' : '';
+          itemRow.appendChild(elt('th', {
+            class: className, scope: 'col', text: state.language === 'zh-CN' ? label : config.label.slice(0, 3).toLowerCase(),
+            title: label,
+          }));
+          valueRow.appendChild(elt('td', { class: className }, elt('label', { title: label }, [
+            elt('span', { class: 'hvmepp-cell-current', text: `${draft.current[config.key]} →` }),
+            elt('input', {
+              type: 'number', min: draft.current[config.key], max: config.max, step: 1,
+              value: draft.raw?.[config.key] ?? draft.target[config.key],
+              class: draft.invalid?.[config.key] ? 'hvmepp-invalid' : '',
+              dataset: { slot: draft.slot, key: config.key },
+              ariaLabel: `${label}: ${draft.current[config.key]}–${config.max}`,
+              ariaInvalid: String(Boolean(draft.invalid?.[config.key])),
+            }),
+          ])));
+        });
+      });
+      return elt('tbody', { class: 'hvmepp-draft-band', dataset: { band: groupKeys.join('-') } }, [groupRow, itemRow, valueRow]);
+    });
+    return elt('div', { class: 'hvmepp-draft-table-wrap' }, elt('table', {
+      class: 'hvmepp-draft-table', ariaLabel: `${draft.name} ${t('headingUpgradeEditor')}`,
+    }, bands));
   }
 
   function renderUpgradeEditor() {
     const box = $('#hvmepp-upgrade-section .hvmepp-upgrade-editor');
     if (!box) return;
     const selected = state.selectedMonsterSlots.map(String);
-    const mobile = matchMedia('(max-width:900px)').matches;
+    const selectionKey = selected.join(',');
+    if (runtime.draftSelectionKey !== selectionKey) {
+      runtime.draftSelectionKey = selectionKey;
+      runtime.openDraftSlots = new Set(selected.slice(0, 1));
+    }
     const fragment = document.createDocumentFragment();
-    fragment.appendChild(elt('div', { class: 'hvmepp-editor-actions' }, [
-      ...UPGRADE_GROUPS.flatMap((group) => [
-        elt('button', { type: 'button', text: `${upgradeGroupLabel(group)} +1`, dataset: { draftAction: 'plus', group: group[0] } }),
-        ...(group[0] === 'chaos' ? [] : [elt('button', {
-          type: 'button', text: `${upgradeGroupLabel(group)} · ${t('buttonEqualize')}`, dataset: { draftAction: 'equalize', group: group[0] },
-        })]),
-      ]),
+    fragment.appendChild(elt('div', { class: 'hvmepp-editor-overview' }, [
+      elt('p', { class: 'hvmepp-editor-scope', text: `${t('labelSelectedMonsters')}: ${selected.length}` }),
       elt('button', { type: 'button', text: t('buttonResetAll'), dataset: { draftAction: 'reset-all' } }),
     ]));
+    fragment.appendChild(elt('div', { class: 'hvmepp-editor-group-actions' }, EDITOR_GROUP_CONFIGS.map((group) =>
+      elt('div', { class: 'hvmepp-editor-group-action' }, [
+        elt('strong', { text: editorGroupLabel(group) }),
+        elt('button', { type: 'button', text: '+1', ariaLabel: `${editorGroupLabel(group)} +1`, dataset: { draftAction: 'plus', groupKey: group.key } }),
+        ...(group.group === 'chaos' ? [] : [elt('button', {
+          type: 'button', text: t('buttonEqualize'), dataset: { draftAction: 'equalize', groupKey: group.key },
+        })]),
+        elt('button', { type: 'button', text: '↺', ariaLabel: `↺ ${editorGroupLabel(group)}`, dataset: { draftAction: 'reset', groupKey: group.key } }),
+      ])
+    )));
     if (!selected.length) {
       fragment.appendChild(elt('div', { class: 'hvmepp-alert', text: t('errorNoMonsterSelection') }));
-    } else if (mobile) {
-      selected.forEach((slot) => {
-        const draft = runtime.drafts.get(slot);
-        const changed = draft?.status === 'ready'
-          && classifyUpgradeDraft(draft, Number(state.targetPL)).status !== 'none';
-        const card = elt('details', {
-          class: 'hvmepp-upgrade-mobile-card',
-          open: draft?.status === 'error' || changed || runtime.openDraftSlots.has(slot), dataset: { slot },
-        }, elt('summary', {
-          text: draft?.status === 'ready'
-            ? `#${slot} ${draft.name} · PL ${formatPL(totalPL(draft.current))} → ${formatPL(totalPL(draft.target))}`
-            : `#${slot} ${draft?.status === 'loading' ? t('draftLoading') : draft?.message || t('errorChaosLoad')}`,
-        }));
-        fragment.appendChild(card);
-      });
     } else {
-      const table = elt('table', { class: 'hvmepp-upgrade-matrix' });
-      table.appendChild(elt('thead', {}, [
-        elt('tr', {}, [
-          elt('th', { rowspan: 2, text: '#' }),
-          elt('th', { rowspan: 2, text: t('tableName') }),
-          elt('th', { rowspan: 2, text: t('labelCurrentPL') }),
-          elt('th', { rowspan: 2, text: t('tableProjectedPL') }),
-          elt('th', { rowspan: 2, text: t('tableReset') }),
-          ...UPGRADE_GROUPS.map((group) => elt('th', {
-            colspan: UPGRADE_CONFIGS.filter(({ group: key }) => key === group[0]).length,
-            text: upgradeGroupLabel(group),
-          })),
-        ]),
-        elt('tr', {}, UPGRADE_CONFIGS.map((config) => elt('th', { text: upgradeItemLabel(config) }))),
-      ]));
-      const body = elt('tbody');
+      const cards = elt('div', { class: 'hvmepp-draft-list' });
       selected.forEach((slot) => {
         const draft = runtime.drafts.get(slot);
         if (draft?.status !== 'ready') {
-          body.appendChild(elt('tr', {}, elt('td', {
-            colspan: 29,
-            text: `#${slot} ${draft?.status === 'loading' ? t('draftLoading') : draft?.message || t('errorChaosLoad')}`,
-          })));
+          if (draft?.status === 'error') runtime.openDraftSlots.add(slot);
+          cards.appendChild(elt('details', {
+            class: 'hvmepp-draft-card hvmepp-alert', open: runtime.openDraftSlots.has(slot), dataset: { slot },
+          }, elt('summary', { class: 'hvmepp-draft-header', text: `#${slot} ${draft?.status === 'loading' ? t('draftLoading') : draft?.message || t('errorChaosLoad')}` })));
           return;
         }
         const status = classifyUpgradeDraft(draft, Number(state.targetPL)).status;
-        body.appendChild(elt('tr', { dataset: { slot } }, [
-          elt('th', { text: `#${slot}` }),
-          elt('td', { text: draft.name }),
-          elt('td', { text: formatPL(totalPL(draft.current)) }),
-          elt('td', { text: `${formatPL(totalPL(draft.target))} · ${draftStatusLabel(status)}` }),
-          elt('td', {}, elt('button', { type: 'button', text: '↺', dataset: { draftAction: 'reset', slot } })),
-          ...UPGRADE_CONFIGS.map((config) => elt('td', {}, renderDraftInput(draft, config))),
+        cards.appendChild(elt('details', { class: 'hvmepp-draft-card', open: runtime.openDraftSlots.has(slot), dataset: { slot } }, [
+          elt('summary', { class: 'hvmepp-draft-header' }, [
+            elt('strong', { text: `#${slot} ${draft.name}` }),
+            elt('span', { text: `PL ${formatPL(totalPL(draft.current))} → ${formatPL(totalPL(draft.target))} · ${draftStatusLabel(status)}` }),
+          ]),
+          elt('button', { type: 'button', class: 'hvmepp-draft-reset', text: '↺', title: t('tableReset'), ariaLabel: `${t('tableReset')} #${slot}`, dataset: { draftAction: 'reset', slot } }),
+          renderDraftTable(draft),
         ]));
       });
-      table.appendChild(body);
-      fragment.appendChild(elt('div', { class: 'hvmepp-upgrade-matrix-wrap' }, table));
+      fragment.appendChild(cards);
     }
     box.replaceChildren(fragment);
-    box.querySelectorAll('.hvmepp-upgrade-mobile-card[open]').forEach((card) => {
-      const draft = runtime.drafts.get(card.dataset.slot);
-      if (draft?.status === 'ready') populateMobileDraftCard(card, draft);
-    });
     if (box.dataset.bound) return;
     box.dataset.bound = 'true';
     box.addEventListener('toggle', (event) => {
-      const card = event.target.closest?.('.hvmepp-upgrade-mobile-card');
-      if (card) {
-        if (card.open) runtime.openDraftSlots.add(card.dataset.slot);
-        else runtime.openDraftSlots.delete(card.dataset.slot);
-      }
-      if (card?.open) {
-        const draft = runtime.drafts.get(card.dataset.slot);
-        if (draft?.status === 'ready') populateMobileDraftCard(card, draft);
-      }
+      const card = event.target.closest?.('.hvmepp-draft-card');
+      if (!card) return;
+      if (card.open) runtime.openDraftSlots.add(card.dataset.slot);
+      else runtime.openDraftSlots.delete(card.dataset.slot);
     }, true);
     box.addEventListener('input', (event) => {
       const input = event.target.closest('input[data-slot][data-key]');
@@ -3197,13 +3215,12 @@
     box.addEventListener('click', (event) => {
       const button = event.target.closest('[data-draft-action]');
       if (!button || runtime.busy) return;
-      const slots = button.dataset.slot ? [button.dataset.slot] : selected;
+      const slots = button.dataset.slot ? [button.dataset.slot] : state.selectedMonsterSlots.map(String);
+      const group = EDITOR_GROUP_CONFIGS.find(({ key }) => key === button.dataset.groupKey);
       slots.forEach((slot) => {
         const draft = runtime.drafts.get(slot);
         if (draft?.status !== 'ready') return;
-        const configs = button.dataset.group
-          ? UPGRADE_CONFIGS.filter(({ group }) => group === button.dataset.group)
-          : UPGRADE_CONFIGS;
+        const configs = group ? getEditorGroupConfigs(group) : UPGRADE_CONFIGS;
         if (button.dataset.draftAction.startsWith('reset')) {
           configs.forEach(({ key }) => {
             draft.target[key] = draft.current[key];
@@ -3239,35 +3256,54 @@
     const rows = getCrystalPlanRows(plan);
     const table = elt('table', { class: 'hvmepp-table hvmepp-resource-table' });
     table.appendChild(elt('tr', {}, TABLE_HEADER_KEYS.crystal.map((key) => elt('th', { text: t(key) }))));
-    rows.filter((row) => row.required > 0).forEach((row) => table.appendChild(elt('tr', {
-      class: row.shortage > 0 ? 'hvmepp-shortage hvut-warn' : '',
-    }, [
-      elt('td', { text: row.label }),
-      elt('td', { text: row.required.toLocaleString() }),
-      elt('td', { text: row.stock === null ? t('stockUnknown') : row.stock.toLocaleString() }),
-      elt('td', { text: row.shortage === null ? '-' : row.shortage.toLocaleString() }),
-      elt('td', { text: row.shortage > 0 ? t('estimateUnavailable') : formatMoney(0) }),
-      elt('td', {}, elt('input', {
-        id: `hvmepp-order-price-${row.attr}`, type: 'number', min: 1, step: 1,
-        value: row.orderBatchPrice || '', disabled: !row.batchSize,
-      })),
-    ])));
+    rows.filter((row) => row.required > 0).forEach((row) => {
+      const estimate = row.orderBookEstimate;
+      const estimateText = row.shortage === null ? '-'
+        : row.shortage === 0 ? formatMoney(0)
+          : !row.orderBookLoaded ? t('estimateUnavailable')
+            : estimate && estimate.remainingBatches === 0
+              ? formatMoney(estimate.estimatedCost)
+              : t('estimateCoverage', { available: estimate?.coveredBatches || 0, needed: row.batches || 0 });
+      table.appendChild(elt('tr', { class: row.shortage > 0 ? 'hvmepp-shortage hvut-warn' : '' }, [
+        elt('td', { text: row.label }),
+        elt('td', { text: row.required.toLocaleString() }),
+        elt('td', { text: row.stock === null ? t('stockUnknown') : row.stock.toLocaleString() }),
+        elt('td', { text: row.shortage === null ? '-' : row.shortage.toLocaleString() }),
+        elt('td', { text: estimateText }),
+        elt('td', {}, elt('input', {
+          id: `hvmepp-order-price-${row.attr}`, type: 'number', min: 1, step: 1,
+          value: row.orderBatchPrice || '', disabled: !row.batchSize,
+        })),
+      ]));
+    });
     const tokenShortage = runtime.chaosTokens === null ? null : Math.max(0, plan.chaosTokens - runtime.chaosTokens);
-    if (plan.chaosTokens > 0) table.appendChild(elt('tr', { class: tokenShortage > 0 ? 'hvmepp-shortage hvut-warn' : '' }, [
-      elt('td', { text: t('tableChaosTokens') }), elt('td', { text: plan.chaosTokens.toLocaleString() }),
-      elt('td', { text: runtime.chaosTokens === null ? t('stockUnknown') : runtime.chaosTokens.toLocaleString() }),
-      elt('td', { text: tokenShortage === null ? '-' : tokenShortage.toLocaleString() }), elt('td', { colspan: 2, text: '-' }),
-    ]));
+    const tokenSummary = elt('p', {
+      class: `hvmepp-token-summary${tokenShortage > 0 ? ' hvmepp-shortage hvut-warn' : ''}`,
+      text: `${t('tableChaosTokens')} · ${t('tableRequired')} ${plan.chaosTokens.toLocaleString()}`
+        + ` · ${t('tableStock')} ${runtime.chaosTokens === null ? t('stockUnknown') : runtime.chaosTokens.toLocaleString()}`
+        + ` · ${t('tableShortage')} ${tokenShortage === null ? '-' : tokenShortage.toLocaleString()}`,
+    });
     const zero = rows.filter((row) => row.required === 0);
-    if (plan.chaosTokens === 0) zero.push({ label: t('tableChaosTokens') });
-    const details = elt('details', { open: runtime.resourceRowsExpanded }, [
-      elt('summary', { text: `${t('headingUpgradeResources')} · 0 × ${zero.length}` }),
-      elt('table', { class: 'hvmepp-table hvmepp-zero-table' }, zero.map((row) =>
-        elt('tr', {}, [elt('td', { text: row.label }), elt('td', { text: '0' })])
-      )),
-    ]);
-    details.addEventListener('toggle', () => { runtime.resourceRowsExpanded = details.open; });
-    box.replaceChildren(elt('div', { class: 'hvmepp-table-wrap' }, table), details);
+    const children = [elt('div', { class: 'hvmepp-table-wrap' }, table), tokenSummary];
+    if (zero.length) {
+      const details = elt('details', { open: runtime.resourceRowsExpanded }, [
+        elt('summary', { text: `${t('headingUpgradeResources')} · 0 × ${zero.length}` }),
+        elt('table', { class: 'hvmepp-table hvmepp-zero-table' }, zero.map((row) =>
+          elt('tr', {}, [elt('td', { text: row.label }), elt('td', { text: '0' })])
+        )),
+      ]);
+      details.addEventListener('toggle', () => { runtime.resourceRowsExpanded = details.open; });
+      children.push(details);
+    }
+    box.replaceChildren(...children);
+    if (!box.dataset.bound) {
+      box.dataset.bound = 'true';
+      box.addEventListener('change', (event) => {
+        if (!event.target.matches('input[id^="hvmepp-order-price-"]')) return;
+        readInputs();
+        renderLogSummary();
+      });
+    }
     if (rows.some((row) => row.required > 0 && (row.stock === null || row.shortage > 0))
       || (plan.chaosTokens > 0 && (tokenShortage === null || tokenShortage > 0))) {
       const section = $('#hvmepp-crystal-section');
@@ -3279,17 +3315,18 @@
     runtime.lastPlan = plan;
     renderUpgradeEditor();
     renderUpgradeResources(plan);
+    renderLogSummary(plan);
   }
 
   function calculate({ renderEditor = true } = {}) {
     clearTimeout(runtime.calculationTimer);
     runtime.calculationTimer = null;
     readInputs();
-    renderLogSummary();
     const plan = buildDraftPlan();
     runtime.lastPlan = plan;
     if (renderEditor) renderUpgradeEditor();
     renderUpgradeResources(plan);
+    renderLogSummary(plan);
     return plan;
   }
 
@@ -3559,6 +3596,10 @@
 
     const actionHandlers = {
       calculate: calculateExactPlan,
+      refresh: async () => {
+        await refreshMarketSnapshot();
+        await loadSelectedDrafts({ force: true });
+      },
       direct: (button) => executeCrystalPurchase('direct', button),
       order: (button) => executeCrystalPurchase('order', button),
       upgrade: (button) => executeBatchUpgradePlan(runtime.lastPlan || calculate(), button),
@@ -3566,7 +3607,13 @@
     const actionButtons = Object.fromEntries(PLANNER_ACTION_CONFIGS.map(([name, id, textKey]) =>
       [name, renderButton(id, textKey)]
     ));
-    actions.append(...Object.values(actionButtons));
+    actionButtons.refresh = renderButton('hvmepp-refresh-data', 'buttonRefreshData');
+    actionButtons.calculate.classList.add('hvmepp-action-primary');
+    actionButtons.direct.classList.add('hvmepp-action-secondary');
+    actionButtons.order.classList.add('hvmepp-action-secondary');
+    actionButtons.upgrade.classList.add('hvmepp-action-execute');
+    actionButtons.refresh.classList.add('hvmepp-action-secondary');
+    actions.append(actionButtons.calculate, actionButtons.refresh, actionButtons.upgrade, actionButtons.direct, actionButtons.order);
     controls.append(settings, actions);
 
     settings.querySelector('#hvmepp-target').addEventListener('input', () => {
@@ -3592,11 +3639,13 @@
         document.querySelector('#hvmepp-crystal-section').open = true;
       }
       applyOrderPricesFromCache();
+      renderLogSummary();
     });
 
     PLANNER_ACTION_CONFIGS.forEach(([name, , textKey, errorKey]) =>
       bindManagedAction(actionButtons[name], textKey, errorKey, actionHandlers[name])
     );
+    bindManagedAction(actionButtons.refresh, 'buttonRefreshData', 'statusCalculationFailed', actionHandlers.refresh);
     return controls;
   }
 
@@ -3668,19 +3717,19 @@
         ]));
       }
     } else {
+      const plannerControls = renderPlannerControls();
+      const plannerSections = PLANNER_SECTION_CONFIGS.map(renderConfiguredSection);
       const workspace = elt('div', { class: 'hvmepp-manager-workspace' }, [
-        renderPlannerControls(),
-        ...PLANNER_SECTION_CONFIGS.map(renderConfiguredSection),
+        plannerControls,
+        plannerSections[0],
+        plannerSections[1],
+        plannerSections[2],
       ]);
       panel.appendChild(elt('div', { class: 'hvmepp-manager-layout' }, [
         ...(runtime.monsterList.length ? [renderMonsterSelection(runtime.monsterList)] : []),
         workspace,
       ]));
       renderLogSummary();
-      if (!runtime.draftMedia) {
-        runtime.draftMedia = matchMedia('(max-width:900px)');
-        runtime.draftMedia.addEventListener('change', renderUpgradeEditor);
-      }
       queueMicrotask(() => loadSelectedDrafts());
     }
     const panelHost = getDokidokiHost()?.addonHost || host.mainpane;
@@ -3777,17 +3826,18 @@
     #hvmepp-dependency-error{margin:8px}.hvmepp-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;font-size:11pt;font-weight:700}.hvmepp-title-actions,.hvmepp-lang-switch,.hvmepp-confirm-actions{display:flex;align-items:center;gap:8px}.hvmepp-lang-switch{justify-content:center;margin:0 32px 6px}.hvmepp-lang-switch button{min-width:76px}.hvmepp-title-actions{margin-left:auto}.hvmepp-easter-egg{border:0;background:none;color:var(--color-font-light);font:inherit;cursor:pointer}.hvmepp-close{width:32px;height:32px;cursor:pointer}
     .hvmepp-manager-layout{display:grid;grid-template-columns:280px minmax(0,1fr);align-items:start;gap:8px;min-width:0}.hvmepp-manager-workspace{display:grid;gap:7px;min-width:0}.hvmepp-manager-layout>#hvmepp-selection-section{position:sticky;top:0;margin:0}.hvmepp-manager-workspace>.hvmepp-section,.hvmepp-upgrade-editor{min-width:0;margin:0}
     .hvmepp-card{box-sizing:border-box;padding:6px;border:1px solid var(--color-border-light);background:var(--color-bg-alpha)}.hvmepp-section{margin:6px 0}.hvmepp-collapsible{padding:0}.hvmepp-section-heading{min-height:34px;padding:7px;cursor:pointer;font-size:10pt;font-weight:700;user-select:none}.hvmepp-collapsible[open]>.hvmepp-section-heading{border-bottom:1px solid var(--color-border-light)}.hvmepp-section-body{padding:6px}.hvmepp-card h3{margin:0 0 5px;font-size:10pt}
-    .hvmepp-controls{display:flex;flex-wrap:wrap;align-items:end;gap:6px 9px;margin:5px 0}.hvmepp-controls label{display:grid;gap:3px}.hvmepp-controls :is(input,select,button),.hvmepp-top-actions button,.hvmepp-editor-actions button{box-sizing:border-box;min-height:36px;padding:5px 8px;color:inherit;font:inherit}.hvmepp-top-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin:5px 0}
+    .hvmepp-controls{display:flex;flex-wrap:wrap;align-items:end;gap:6px 9px;margin:5px 0}.hvmepp-controls label{display:grid;gap:3px}.hvmepp-controls :is(input,select,button),.hvmepp-top-actions button,.hvmepp-editor-overview button,.hvmepp-editor-group-actions button{box-sizing:border-box;min-height:36px;padding:5px 8px;color:inherit;font:inherit}.hvmepp-top-actions{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:3px;margin:3px 0}.hvmepp-top-actions :is(.hvmepp-action-primary,.hvmepp-action-execute){border-color:var(--dokidoki-brass,var(--color-border-default));background:var(--dokidoki-surface-strong,var(--color-bg-h1));font-weight:700}.hvmepp-top-actions .hvmepp-action-secondary{color:var(--color-font-light)}
     .hvmepp-selection-meta{display:grid;gap:3px;margin-bottom:5px}.hvmepp-selection-help{color:var(--color-font-light);font-size:8pt}.hvmepp-monster-list{display:grid;grid-template-columns:1fr;gap:2px;max-height:590px;padding:4px;overflow:auto;border:1px solid var(--color-border-light);background:var(--color-bg-alpha)}.hvmepp-monster-option{min-width:0;padding:5px 6px;overflow:hidden;border:1px solid transparent;white-space:nowrap;text-overflow:ellipsis;user-select:none}.hvmepp-monster-option.hvmepp-selected{border-color:var(--dokidoki-brass,var(--color-border-default));background:var(--dokidoki-surface-strong,var(--color-bg-h1))}.hvmepp-monster-list:focus-visible{outline:3px solid rgba(155,106,36,.4);outline-offset:1px}.hvmepp-monster-list.hvmepp-disabled{opacity:.55}
-    .hvmepp-editor-actions{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}.hvmepp-upgrade-matrix-wrap{box-sizing:border-box;width:100%;max-width:100%;max-height:520px;overflow:auto;border:1px solid var(--color-border-light)}.hvmepp-upgrade-matrix{width:max-content;min-width:100%;border-collapse:separate;border-spacing:0;font-size:8pt}.hvmepp-upgrade-matrix :is(th,td){min-width:62px;padding:3px;border:solid var(--color-border-light);border-width:0 1px 1px 0;background:var(--color-bg-alpha);text-align:center}.hvmepp-upgrade-matrix thead th{position:sticky;top:0;z-index:5;background:var(--color-bg-h1)}.hvmepp-upgrade-matrix thead tr:nth-child(2) th{top:28px}.hvmepp-upgrade-matrix :is(th,td):nth-child(1){position:sticky;left:0;z-index:4;min-width:46px;max-width:46px}.hvmepp-upgrade-matrix :is(th,td):nth-child(2){position:sticky;left:46px;z-index:4;min-width:124px;max-width:124px;text-align:left}.hvmepp-upgrade-matrix :is(th,td):nth-child(3){position:sticky;left:170px;z-index:4;min-width:64px}.hvmepp-upgrade-matrix :is(th,td):nth-child(4){position:sticky;left:234px;z-index:4;min-width:105px}.hvmepp-upgrade-matrix :is(th,td):nth-child(5){position:sticky;left:339px;z-index:4;min-width:42px}.hvmepp-upgrade-cell{display:flex;align-items:center;justify-content:center;gap:3px}.hvmepp-upgrade-cell input{box-sizing:border-box;width:42px;min-height:30px;text-align:center}.hvmepp-cell-current{color:var(--color-font-light);font-variant-numeric:tabular-nums}.hvmepp-invalid{border:2px solid var(--color-font-invalid)!important;background:var(--color-warn-alpha)!important}.hvmepp-upgrade-mobile-card{margin:5px 0;border:1px solid var(--color-border-light);background:var(--color-bg-alpha)}.hvmepp-upgrade-mobile-card>summary{min-height:40px;padding:8px;font-weight:700;cursor:pointer}.hvmepp-upgrade-groups{display:grid;gap:6px;padding:6px}.hvmepp-upgrade-groups fieldset{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;border:1px solid var(--color-border-light)}
-    .hvmepp-table{width:100%;margin:4px 0;border-collapse:collapse;table-layout:fixed;font-size:9pt}.hvmepp-table-wrap{width:100%;overflow-x:auto}.hvmepp-table-wrap>.hvmepp-table{min-width:650px}.hvmepp-table :is(th,td){padding:3px;border:1px solid var(--color-border-light);text-align:center;word-break:keep-all}.hvmepp-table th{background:var(--color-bg-h1)}.hvmepp-table input{box-sizing:border-box;width:88px;text-align:right}.hvmepp-zero-table{max-width:430px}.hvmepp-shortage{background:var(--color-warn-alpha);font-weight:700}.hvmepp-alert{margin:5px 0;padding:6px;border:1px solid var(--color-font-warn);background:var(--color-warn-alpha);font-weight:700}
+    .hvmepp-editor-overview{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:3px;margin:2px 0}.hvmepp-editor-scope{margin:0;color:var(--color-font-light);font-variant-numeric:tabular-nums}.hvmepp-editor-group-actions{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:2px;margin:2px 0}.hvmepp-editor-group-action{display:flex;align-items:center;gap:2px;padding:2px;border:1px solid var(--color-border-light);background:var(--color-bg-alpha)}.hvmepp-editor-group-action strong{min-width:0;margin-right:auto}.hvmepp-editor-group-actions button{min-height:28px;padding:2px 5px}.hvmepp-draft-list{display:grid;gap:2px}.hvmepp-draft-card{position:relative;min-width:0;padding:0;border:1px solid var(--color-border-light);background:var(--color-bg-alpha)}.hvmepp-draft-header{display:grid;grid-template-columns:12px minmax(0,1fr) auto;align-items:center;gap:4px;min-height:28px;padding:2px 34px 2px 5px;cursor:pointer;list-style:none}.hvmepp-draft-header::-webkit-details-marker{display:none}.hvmepp-draft-header::before{content:'▶';color:var(--color-font-light);font-size:8px;text-align:center}.hvmepp-draft-card[open] > .hvmepp-draft-header::before{content:'▼'}.hvmepp-draft-header :is(strong,span){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hvmepp-draft-header span{color:var(--color-font-light);font-variant-numeric:tabular-nums}.hvmepp-draft-reset{position:absolute;top:1px;right:2px;min-width:26px;min-height:26px;padding:1px}.hvmepp-draft-card:not([open])>.hvmepp-draft-reset{display:none}.hvmepp-draft-table-wrap{min-width:0;padding:2px;overflow-x:auto}.hvmepp-draft-table{width:100%;min-width:480px;table-layout:fixed;border-collapse:separate;border-spacing:0 2px;font-size:8pt;line-height:1;text-align:center;white-space:nowrap}.hvmepp-draft-table :is(th,td){box-sizing:border-box;height:20px;padding:0;border-width:1px 0;border-style:solid;border-color:var(--color-border-light)}.hvmepp-draft-table tr>*:first-child{border-left-width:1px}.hvmepp-draft-table .hvmepp-group-end,.hvmepp-draft-group-row th{border-right-width:1px}.hvmepp-draft-band+.hvmepp-draft-band .hvmepp-draft-group-row th{border-top-width:2px}.hvmepp-draft-group-row th{height:18px;background:var(--color-bg-h1);font-weight:700}.hvmepp-draft-item-row th{height:18px;color:var(--color-font-light);font-weight:400}.hvmepp-draft-value-row td{height:36px}.hvmepp-draft-value-row label{display:grid;grid-template-rows:10px 24px;place-items:center;min-width:0}.hvmepp-cell-current{overflow:hidden;color:var(--color-font-light);font-size:7.5pt;font-variant-numeric:tabular-nums;line-height:10px;white-space:nowrap}.hvmepp-draft-table input{box-sizing:border-box;width:30px;min-height:24px;margin:0!important;padding:0;text-align:center}.hvmepp-invalid{border:2px solid var(--color-font-invalid)!important;background:var(--color-warn-alpha)!important}
+    .hvmepp-table{width:100%;margin:4px 0;border-collapse:collapse;table-layout:fixed;font-size:9pt}.hvmepp-table-wrap{width:100%;overflow-x:auto}.hvmepp-table-wrap>.hvmepp-table{min-width:650px}.hvmepp-table :is(th,td){padding:3px;border:1px solid var(--color-border-light);text-align:center;word-break:keep-all}.hvmepp-table th{background:var(--color-bg-h1)}.hvmepp-table input{box-sizing:border-box;width:88px;text-align:right}.hvmepp-token-summary{margin:3px 0;padding:4px 6px;border:1px solid var(--color-border-light);background:var(--color-bg-alpha);font-variant-numeric:tabular-nums}.hvmepp-zero-table{max-width:430px}.hvmepp-shortage{background:var(--color-warn-alpha);font-weight:700}.hvmepp-alert{margin:5px 0;padding:6px;border:1px solid var(--color-font-warn);background:var(--color-warn-alpha);font-weight:700}
     .hvmepp-log-output{padding:5px 7px;border:1px solid var(--color-border-light);background:var(--color-bg-alpha)}.hvmepp-log-output details{margin:3px 0}.hvmepp-log-output pre{max-height:180px;overflow:auto;white-space:pre-wrap}#hvmepp-log-message:not(:empty){margin-top:4px;padding-top:4px;border-top:1px solid var(--color-border-alpha)}
     .hvmepp-confirm-dialog{width:min(680px,calc(100vw - 24px));max-height:80vh;padding:16px;overflow:auto;border:2px solid var(--dokidoki-brass,var(--color-border-default));border-radius:8px;background:var(--dokidoki-surface,var(--color-bg-default));color:var(--dokidoki-ink,var(--color-font-default));box-shadow:0 18px 50px rgba(0,0,0,.35)}.hvmepp-confirm-dialog::backdrop{background:rgba(34,27,24,.58)}.hvmepp-confirm-dialog h2{margin-top:0}.hvmepp-confirm-actions{justify-content:flex-end;margin-top:14px}.hvmepp-confirm-actions button{min-width:110px;min-height:40px}.hvmepp-confirm-execute{border-color:var(--dokidoki-brass,var(--color-border-default));background:#F1DEB7;color:#3F302B}
     .hvmepp-rename-file-label,.hvmepp-rename-text-label{display:grid;gap:3px;margin:4px 0}.hvmepp-file-input{display:none;}.hvmepp-file-picker{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.hvmepp-file-name,.hvmepp-rename-help{color:var(--color-font-invalid)}#hvmepp-rename-mappings{box-sizing:border-box;width:100%;resize:vertical;font:9pt/1.35 Consolas,monospace}#hvmepp-rename-prefix{min-width:180px}.hvmepp-rename-preview{max-height:180px;margin:4px 0;padding:4px;overflow:auto;border:1px solid var(--color-border-light);background:var(--color-bg-alpha)}.hvmepp-rename-preview ul{margin:3px 0 0;padding-left:20px}.hvmepp-rename-status{min-height:1.25em;margin-top:5px;padding-top:5px;border-top:1px solid var(--color-border-light)}
     #dokidoki-shell #hvmepp-panel{--color-bg-default:var(--dokidoki-surface);--color-bg-alpha:var(--dokidoki-surface-2);--color-bg-h1:var(--dokidoki-surface-strong);--color-border-default:var(--dokidoki-amber);--color-border-light:var(--dokidoki-line);--color-border-alpha:rgba(155,106,36,.28);--color-font-default:var(--dokidoki-ink);--color-font-light:var(--dokidoki-muted);--color-font-invalid:var(--dokidoki-danger);--color-font-warn:var(--dokidoki-danger);--color-warn-alpha:rgba(142,38,54,.11);position:relative!important;inset:auto!important;z-index:auto!important;width:100%;max-width:none;height:calc(100vh - 150px);min-height:560px;margin:0;padding:10px;border:0;border-radius:6px;background:var(--dokidoki-surface);color:var(--dokidoki-ink);scrollbar-color:var(--dokidoki-amber) var(--dokidoki-surface-2)}
     #dokidoki-shell #hvmepp-panel :is(button,input,select,textarea){border-color:var(--dokidoki-line);background:var(--dokidoki-surface-strong);color:var(--dokidoki-ink)}#dokidoki-shell #hvmepp-panel :is(button,input,select,textarea):focus-visible{outline:3px solid rgba(155,106,36,.42);outline-offset:2px}
-    @media(max-width:900px){#hvmepp-panel,#dokidoki-shell #hvmepp-panel{height:auto;min-height:0;max-height:none;padding:6px}.hvmepp-manager-layout{grid-template-columns:1fr}.hvmepp-manager-layout>#hvmepp-selection-section{position:static}.hvmepp-monster-list{grid-template-columns:repeat(2,minmax(0,1fr));max-height:220px}.hvmepp-top-actions{grid-template-columns:repeat(2,minmax(0,1fr))}.hvmepp-controls :is(input,select,button),.hvmepp-top-actions button,.hvmepp-editor-actions button,.hvmepp-upgrade-mobile-card>summary{min-height:44px}.hvmepp-upgrade-matrix-wrap{display:none}}
-    @media(max-width:520px){.hvmepp-monster-list,.hvmepp-upgrade-groups fieldset{grid-template-columns:1fr}.hvmepp-lang-switch{margin-inline:0}.hvmepp-title{align-items:flex-start}.hvmepp-easter-egg{display:none}}
+    @media(max-width:900px){#hvmepp-panel,#dokidoki-shell #hvmepp-panel{height:auto;min-height:0;max-height:none;padding:6px}.hvmepp-manager-layout{grid-template-columns:1fr}.hvmepp-manager-layout>#hvmepp-selection-section{position:static}.hvmepp-monster-list{grid-template-columns:repeat(2,minmax(0,1fr));max-height:220px}.hvmepp-top-actions{grid-template-columns:repeat(2,minmax(0,1fr))}.hvmepp-controls :is(input,select,button),.hvmepp-top-actions button,.hvmepp-editor-overview button,.hvmepp-editor-group-actions button{min-height:44px}.hvmepp-editor-group-actions{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}}
+    @media(max-width:700px){.hvmepp-draft-header{grid-template-columns:12px minmax(0,1fr);gap:0 4px}.hvmepp-draft-header span{grid-row:2;grid-column:2}}
+    @media(max-width:520px){.hvmepp-monster-list{grid-template-columns:1fr}.hvmepp-lang-switch{margin-inline:0}.hvmepp-title{align-items:flex-start}.hvmepp-easter-egg{display:none}}
     @media(prefers-reduced-motion:reduce){#hvmepp-panel *,#hvmepp-panel *::before,#hvmepp-panel *::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
   `);
 

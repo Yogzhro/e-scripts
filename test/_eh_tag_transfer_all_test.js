@@ -11,6 +11,11 @@ const projectRoot = path.resolve(__dirname, '..');
 const fixturePath = path.join(__dirname, '_eh_tag_transfer_fixture_server.js');
 const scriptPath = path.join(projectRoot, 'eh-tag-transfer.js');
 const documentationPath = path.join(projectRoot, 'readme', 'e-hentai-跨语言Tag迁移-开发说明.md');
+const functionAuditPath = path.join(
+    projectRoot,
+    'readme',
+    'e-hentai-跨语言Tag迁移-函数审计.md'
+);
 const syntaxFiles = [
     'eh-tag-transfer.js',
     'test/_eh_tag_transfer_all_test.js',
@@ -51,7 +56,7 @@ function runSourceAndInterfaceAudit() {
     const sourceBuffer = fs.readFileSync(scriptPath);
     const source = sourceBuffer.toString('utf8');
     const fixtureSource = fs.readFileSync(fixturePath, 'utf8');
-    assert.equal(core.version, '0.2.5.0');
+    assert.equal(core.version, '0.2.6.7');
     assert.equal(core.transport, 'direct-xhr-verified');
     assert.equal(core.parameters.searchRequestIntervalMs, 3000);
     assert.equal(core.parameters.homeRequestLimit, 120);
@@ -62,7 +67,7 @@ function runSourceAndInterfaceAudit() {
     assert.equal(core.parameters.randomTagSkipEnabled, true);
     assert.equal(core.parameters.randomTagSkipMin, 0);
     assert.equal(core.parameters.randomTagSkipMax, 3);
-    assert.match(core.parameters.blacklist, /(?:^|\n)swimsuit(?:\n|$)/);
+    assert.match(core.parameters.blacklist, /(?:^|\n)female:swimsuit(?:\n|$)/);
     assert.deepEqual(Object.keys(core), [
         'version', 'transport', 'parameters', 'defaults', 'limits', 'config',
         'matching', 'search', 'transfer', 'repository', 'writeProtocol',
@@ -74,6 +79,12 @@ function runSourceAndInterfaceAudit() {
         source,
         /!0|!1|return void|REQUEST_CLIENT|SCHEDULER|parseBadTagRecords/
     );
+    assert.doesNotMatch(source, /rememberGallerySnapshot/);
+    assert.doesNotMatch(
+        source,
+        /function (?:getGalleryListLayout|announceSearchPhase|clearScheduleTimer|clearLifecycleTimer)\b/,
+        '单用途薄包装不应回流'
+    );
     assert.doesNotMatch(source, /(?:-1|1) \/ 0|\b\d+e\d+\b/);
     assert.doesNotMatch(source, /\bNL\b/);
     for (const retiredMarker of [
@@ -84,6 +95,27 @@ function runSourceAndInterfaceAudit() {
     }
     assert.doesNotMatch(source, /ehtt-minimize|ehtt-minimized|savePanelLayout|pointerdown/);
     assert.doesNotMatch(source, /createElement\(['"]iframe['"]\)|send_vote/);
+    assert.doesNotMatch(
+        source,
+        /GDATA_BATCH_SIZE|buildGdataBatches|normalizeGdataMetadata|mergeGdataCandidates|fetchGdataBatch|enrichCandidatesWithGdata|method:\s*["']gdata["']/,
+        '生产脚本不得残留 gdata 子系统或请求负载'
+    );
+    assert.doesNotMatch(
+        source,
+        /GALLERY_LIST_LAYOUTS|detectGalleryListLayout|findGalleryListLink/,
+        '列表解析应使用统一宽泛选择器，不保留布局分派'
+    );
+    assert.match(source, /querySelectorAll\("\.itg tr,\.gl1t"\)/);
+    assert.match(source, /page < maxPages && hasNext && newResultCount > 0/);
+    assert.match(
+        source,
+        /if \(candidateIndex \+ 1 < detailCandidates\.length\)\s+await randomDelay/,
+        '最后一个详情候选完成后不得继续等待'
+    );
+    assert.match(source, /const primarySearchStatus = await runQueryStage\("english"\);/);
+    assert.match(source, /if \(primarySearchStatus === "empty"\)/);
+    assert.match(source, /主标题与副标题均未搜索到结果/);
+    assert.doesNotMatch(fixtureSource, /gdata/i, '浏览器夹具不得保留 gdata 模拟协议');
     assert.ok(
         source.indexOf('applyVersionStateReset();') < source.indexOf('setupGlobalPauseSync();'),
         '版本重置必须先于全局停止监听与自动调度'
@@ -116,7 +148,8 @@ function runSourceAndInterfaceAudit() {
         'sanitizeConfig', 'sanitizeHomeState', 'assessCandidate', 'runRequestLifecycle',
         'parseGalleryWriteContext', 'correctBadTagRecord', 'runSearchPipeline',
         'processHomepage', 'resolveDailyScheduleWindow', 'classifyCorrectionState',
-        'buildTargetTagSet', 'planRandomTagSkip', 'runWorker', 'initialize'
+        'buildTargetTagSet', 'planRandomTagSkip',
+        'parseGalleryList', 'runWorker', 'initialize'
     ]) {
         assert.ok(functionNames.includes(semanticName), `缺少语义函数：${semanticName}`);
     }
@@ -212,6 +245,28 @@ function runMatchingGoldenSamples() {
         core.search.buildQueries({titleRefs: translated.titleRefs}).map(query => query.stage),
         ['english', 'japanese']
     );
+    const translationSuffixQueries = core.search.buildQueries({
+        titleRefs: [
+            '[Circle] Translation Suffix Work Ch. 2 [某汉化]【某机翻】[某Translate][某Traslate]',
+            ''
+        ]
+    });
+    assert.deepEqual(
+        translationSuffixQueries.map(query => query.text),
+        ['title:"Translation Suffix Work Ch. 2"'],
+        '连续翻译尾缀必须全部从搜索标题中删除'
+    );
+    const leadingTranslationPrefix = core.matching.assessCandidate(
+        gallery({
+            title: '[某汉化] Translation Prefix Work', pages: 20, language: 'chinese'
+        }),
+        gallery({
+            title: '[Circle] Translation Prefix Work', pages: 20, language: 'japanese'
+        }),
+        config
+    );
+    assert.equal(leadingTranslationPrefix.accepted, false);
+    assert.equal(leadingTranslationPrefix.reason, '标题署名冲突');
     console.log('matching golden samples passed');
 }
 
@@ -507,6 +562,96 @@ function runSafetyRegressionTests() {
     assert.deepEqual(Object.keys(core.search.pipeline), [
         'discover', 'prefilter', 'loadProgressiveDetails', 'selectFinal', 'run'
     ]);
+    assert.equal(core.search.pipeline.prefilter.constructor.name, 'Function');
+    assert.deepEqual(Object.keys(core.search.listings), ['parse']);
+    assert.equal(core.search.canContinuePages(1, 1, true, 25), false);
+    assert.equal(core.search.canContinuePages(1, 2, true, 25), true);
+    assert.equal(core.search.canContinuePages(1, 2, false, 25), false);
+    assert.equal(core.search.canContinuePages(1, 2, true, 0), false);
+    assert.equal(Object.hasOwn(core.search, 'gdata'), false);
+
+    let exactDistanceCalls = 0;
+    assert.equal(
+        core.matching.titleDistanceRatio('ＡＢＣ！', 'abc', () => exactDistanceCalls++),
+        0,
+        '规范化后相等的标题应直接返回零距离'
+    );
+    assert.equal(exactDistanceCalls, 0, '完全相等标题不得建立 Levenshtein 矩阵');
+    let cachedDistanceCalls = 0;
+    const cachedTitleComparison = core.matching.compareTitles(
+        ['[Circle] Distance Cache Work Alpha'],
+        ['[Circle] Distance Cache Work Alphb'],
+        core.config.resolve(),
+        () => {
+            cachedDistanceCalls++;
+            return 0.05;
+        }
+    );
+    assert.equal(cachedTitleComparison.accepted, true);
+    assert.equal(cachedDistanceCalls, 1, '全局与同字段比较必须复用同一标题对距离');
+
+    const cacheCurrent = gallery({title: '[Circle] Cached Preview', pages: 20});
+    const cacheCandidate = gallery({
+        title: '[Circle] Cached Preview',
+        pages: 20,
+        language: 'english',
+        url: 'https://e-hentai.org/g/2/b/'
+    });
+    let assessmentCalls = 0;
+    const getTaskAssessment = core.search.createTaskAssessor(
+        cacheCurrent,
+        core.config.resolve(),
+        () => {
+            assessmentCalls++;
+            return {accepted: true, score: 100};
+        }
+    );
+    assert.equal(getTaskAssessment(cacheCandidate).accepted, true);
+    assert.equal(
+        core.search.pipeline.prefilter(
+            cacheCurrent,
+            [cacheCandidate],
+            core.config.resolve(),
+            getTaskAssessment
+        ).length,
+        1
+    );
+    assert.equal(assessmentCalls, 1, '同一任务的预览候选评估必须只计算一次');
+
+    const expectedDefaultBlacklist = [
+        'language:*',
+        'reclass:*',
+        'other:extraneous ads',
+        'other:full color',
+        'other:scanmark',
+        'other:watermarked',
+        'other:multipanel sequence',
+        'other:rough translation',
+        'parody:original',
+        'female:handjob',
+        'female:blowjob',
+        'female:paizuri',
+        'female:nakadashi',
+        'female:swimsuit'
+    ];
+    assert.deepEqual(core.parameters.blacklist.split('\n'), expectedDefaultBlacklist);
+    const defaultBlacklist = core.transfer.compileBlacklist(core.parameters.blacklist);
+    for (const tag of [
+        'language:english', 'reclass:artistcg', 'other:extraneous ads',
+        'other:full color', 'other:scanmark', 'other:watermarked',
+        'other:multipanel sequence', 'other:rough translation', 'parody:original',
+        'female:handjob', 'female:blowjob', 'female:paizuri', 'female:nakadashi',
+        'female:swimsuit'
+    ]) {
+        assert.equal(core.transfer.isBlacklisted(tag, defaultBlacklist), true, tag);
+    }
+    for (const tag of [
+        'other:full censorship', 'other:mosaic censorship', 'female:big ass',
+        'female:x-ray', 'female:kissing', 'female:big breasts', 'male:handjob',
+        'other:original', 'female:rough translation'
+    ]) {
+        assert.equal(core.transfer.isBlacklisted(tag, defaultBlacklist), false, tag);
+    }
 
     const blacklist = core.transfer.compileBlacklist(
         '# comment\nfull color\nother:multipanel sequence\nlanguage:*\nswimsuit'
@@ -666,6 +811,73 @@ function runSafetyRegressionTests() {
     console.log('configuration, transfer and protocol regressions passed');
 }
 
+function runGalleryListingTests() {
+    console.log('\n=== 统一列表解析 ===');
+    const currentGallery = gallery({
+        title: '[Circle] Preview Only Work Ch. 1',
+        pages: 20,
+        url: 'https://e-hentai.org/g/9000/aaaaaaaaaa/'
+    });
+    const previewCandidate = gallery({
+        title: '[Circle] Preview Only Work Ch. 1',
+        pages: 20,
+        language: 'english',
+        url: 'https://e-hentai.org/g/9001/bbbbbbbbbb/'
+    });
+    assert.equal(
+        core.search.pipeline.prefilter(currentGallery, [previewCandidate], core.config.resolve()).length,
+        1,
+        '列表信息完整且匹配时应同步通过预筛'
+    );
+    assert.equal(
+        core.search.pipeline.prefilter(
+            currentGallery,
+            [{...previewCandidate, pageCount: null}],
+            core.config.resolve()
+        ).length,
+        0,
+        '列表页数缺失时应直接拒绝，不再请求元数据补全'
+    );
+    function listingItem(title, url, pageText) {
+        const titleElement = {textContent: title};
+        const linkElement = {getAttribute: name => name === 'href' ? url : ''};
+        return {
+            querySelector(selector) {
+                if (selector === '.glink') return titleElement;
+                if (selector.includes('a[href*="/g/"]')) return linkElement;
+                return null;
+            },
+            querySelectorAll(selector) {
+                if (selector === 'td,div,span') return [{textContent: pageText}];
+                if (selector === '.gt,.gtl') return [];
+                return [];
+            }
+        };
+    }
+    const listingDocument = {
+        querySelectorAll(selector) {
+            assert.equal(selector, '.itg tr,.gl1t');
+            return [
+                listingItem('English Pages', '/g/10/aaaaaaaaaa/', '20 pages'),
+                listingItem('Localized Pages', '/g/11/bbbbbbbbbb/', '20 ページ')
+            ];
+        }
+    };
+    const parsedListings = core.search.listings.parse(
+        listingDocument,
+        'https://e-hentai.org'
+    );
+    assert.equal(parsedListings.length, 2);
+    assert.equal(parsedListings[0].pageCount, 20);
+    assert.equal(parsedListings[1].pageCount, null, '列表页数应以完整 pages 字段为准');
+    assert.deepEqual(
+        core.search.listings.parse({querySelectorAll: () => []}, 'https://e-hentai.org'),
+        [],
+        '空结果页应直接返回空列表'
+    );
+    console.log('gallery listing tests passed');
+}
+
 async function runRequestLifecycleTests() {
     console.log('\n=== 统一请求生命周期 ===');
     let abortCount = 0;
@@ -709,7 +921,7 @@ async function runRequestLifecycleTests() {
     assert.equal(
         (fs.readFileSync(scriptPath, 'utf8').match(/runRequestLifecycle\(/g) || []).length,
         4,
-        'Fetch、XHR、GM 三种适配器必须复用唯一生命周期入口'
+        'HTML Fetch、标签 XHR 与 GM 适配器必须复用唯一生命周期入口'
     );
     console.log('request lifecycle tests passed');
 }
@@ -1010,6 +1222,13 @@ async function runFixtureSmokeTest() {
         const homepage = await waitForFixture(baseUrl, child, () => `${stdout}\n${stderr}`.trim());
         assert.equal(homepage.statusCode, 200);
         assert.match(homepage.body, /tag-transfer\.user\.js/);
+        for (const [layout, rootClass] of [
+            ['m', 'gltm'], ['p', 'gltm'], ['l', 'gltc'], ['e', 'glte'], ['t', 'gld']
+        ]) {
+            const listing = await requestText(`${baseUrl}/?layout=${layout}`);
+            assert.equal(listing.statusCode, 200);
+            assert.match(listing.body, new RegExp(`class="itg ${rootClass}"`));
+        }
 
         const userScript = await requestText(`${baseUrl}/tag-transfer.user.js`);
         assert.equal(userScript.statusCode, 200);
@@ -1057,6 +1276,7 @@ function runDocumentationAudit() {
     console.log('\n=== 测试文档一致性审计 ===');
     const source = fs.readFileSync(scriptPath, 'utf8');
     const documentation = fs.readFileSync(documentationPath, 'utf8');
+    const functionAudit = fs.readFileSync(functionAuditPath, 'utf8');
     const version = readScriptVersion(source);
     const versionLine = `- 当前版本：` + '`' + version + '`';
     assert.ok(documentation.includes(versionLine), `开发说明版本未同步：${version}`);
@@ -1065,6 +1285,16 @@ function runDocumentationAudit() {
     }
     assert.match(documentation, /node test\/_eh_tag_transfer_all_test\.js\s*\n/);
     assert.match(documentation, /node test\/_eh_tag_transfer_all_test\.js --fixture/);
+    assert.ok(functionAudit.includes(`- 审计版本：` + '`' + version + '`'));
+    const namedFunctions = [
+        ...source.matchAll(/\b(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/g)
+    ].map(match => match[1]);
+    for (const functionName of namedFunctions) {
+        assert.ok(
+            functionAudit.includes('`' + functionName + '`'),
+            `函数审计缺少 ${functionName}`
+        );
+    }
     console.log('E-Hentai test documentation audit passed');
 }
 
@@ -1078,6 +1308,7 @@ async function runAutomatedTests() {
     runCorrectionStateTests();
     runRandomTagSkipTests();
     runSafetyRegressionTests();
+    runGalleryListingTests();
     await runRequestLifecycleTests();
     runVersionAndScheduleTests();
     runHomepageSimulation();

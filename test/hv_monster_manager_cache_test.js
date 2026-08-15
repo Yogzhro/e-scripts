@@ -49,8 +49,8 @@ function loadFunction(name, dependencies = {}) {
 }
 
 assert(source.includes("const CACHE_KEY = 'hv_monster_manager_cache_v1'"));
-assert(source.includes('// @version      0.3.5.0'));
-assert(source.includes("const ADDON_VERSION = '0.3.5.0'"));
+assert(source.includes('// @version      0.3.6.7'));
+assert(source.includes("const ADDON_VERSION = '0.3.6.7'"));
 
 const normalizeMonsterLevels = (levels) => {
   if (!levels || typeof levels !== 'object' || attrs.some((attr) => !Number.isFinite(Number(levels[attr])))) return null;

@@ -221,38 +221,28 @@
     [data-preview-local-action].is-secondary { border-color: var(--preview-line); background: var(--preview-paper-3); }
     .preview-upgrade-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 8px; border-bottom: 1px solid var(--preview-line); }
     .preview-upgrade-toolbar p { flex: 1 1 280px; margin: 0; color: var(--preview-muted); }
-    .preview-upgrade-matrix-wrap { width: 100%; max-height: 510px; overflow: auto; overscroll-behavior: contain; border-top: 1px solid var(--preview-line); scrollbar-color: var(--preview-amber) var(--preview-paper-2); }
-    .preview-upgrade-matrix { width: 100%; min-width: 1880px; border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: 10px; }
-    .preview-upgrade-matrix th, .preview-upgrade-matrix td { min-width: 58px; height: 48px; padding: 4px; border-right: 1px solid var(--preview-line); border-bottom: 1px solid var(--preview-line); background: var(--preview-paper-3); text-align: center; }
-    .preview-upgrade-matrix thead th { position: sticky; top: 0; z-index: 6; background: var(--preview-paper-2); color: var(--preview-ink); }
-    .preview-upgrade-matrix thead tr:nth-child(2) th { top: 48px; }
-    .preview-upgrade-matrix .preview-group-heading { min-width: 0; background: #eadfc9; }
-    .preview-group-heading > span { display: inline-block; margin-right: 6px; }
+    .preview-editor-scope { margin: 0; color: var(--preview-muted); font-variant-numeric: tabular-nums; }
+    .preview-editor-group-actions { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 3px; padding: 4px; border-bottom: 1px solid var(--preview-line); background: var(--preview-paper-2); }
+    .preview-editor-group-action { display: flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid var(--preview-line); background: var(--preview-paper-3); }
+    .preview-editor-group-action strong { min-width: 0; margin-right: auto; }
     .preview-group-actions { display: inline-flex; gap: 3px; }
     .preview-group-actions button, .preview-row-reset { min-width: 32px; min-height: 32px; padding: 2px 5px; border: 1px solid var(--preview-line); border-radius: 3px; background: var(--preview-paper-3); color: var(--preview-ink); cursor: pointer; }
-    .preview-upgrade-matrix .preview-id-cell { position: sticky; z-index: 4; background: var(--preview-paper); }
-    .preview-upgrade-matrix thead .preview-id-cell { z-index: 8; background: var(--preview-paper-2); }
-    .preview-upgrade-matrix .preview-id-slot { left: 0; width: 48px; min-width: 48px; }
-    .preview-upgrade-matrix .preview-id-name { left: 48px; width: 140px; min-width: 140px; text-align: left; }
-    .preview-upgrade-matrix .preview-id-current { left: 188px; width: 68px; min-width: 68px; }
-    .preview-upgrade-matrix .preview-id-projected { left: 256px; width: 84px; min-width: 84px; }
-    .preview-upgrade-matrix .preview-id-reset { left: 340px; width: 58px; min-width: 58px; box-shadow: 3px 0 5px rgba(63,48,43,.12); }
-    .preview-upgrade-matrix tbody tr.is-custom td { background-color: #fff5df; }
-    .preview-upgrade-matrix tbody tr.has-warning .preview-id-projected { color: var(--preview-danger); font-weight: 700; }
-    .preview-level-editor { display: grid; grid-template-columns: auto 46px; align-items: center; gap: 3px; min-width: 0; }
-    .preview-level-editor small { color: var(--preview-muted); font-variant-numeric: tabular-nums; }
-    .preview-level-editor input { width: 46px; min-height: 34px; padding: 3px; border: 1px solid var(--preview-line); border-radius: 3px; background: #fffdf7; color: var(--preview-ink); text-align: right; font-variant-numeric: tabular-nums; }
     [data-upgrade-slot][aria-invalid="true"] { border-color: var(--preview-danger) !important; background: #fff1f3 !important; outline: 2px solid rgba(142,38,54,.16); }
-    #dokidoki-preview-upgrade-cards { display: none; gap: 7px; max-height: 620px; padding: 7px; overflow-y: auto; }
-    .preview-upgrade-card { border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper-3); }
-    .preview-upgrade-card > summary { display: grid; grid-template-columns: auto minmax(0,1fr) auto; gap: 7px; min-height: var(--preview-touch); padding: 8px; color: var(--preview-ink); font-weight: 700; cursor: pointer; }
-    .preview-upgrade-card.has-warning > summary { color: var(--preview-danger); }
-    .preview-upgrade-card-body { display: grid; gap: 7px; padding: 7px; border-top: 1px solid var(--preview-line); }
-    .preview-upgrade-card-group { padding: 7px; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper); }
-    .preview-upgrade-card-group h4 { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 5px; margin: 0 0 6px; }
-    .preview-upgrade-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 5px; }
-    .preview-upgrade-card-field { display: grid; gap: 3px; min-width: 0; color: var(--preview-muted); font-size: 9px; }
-    .preview-upgrade-card-field input { width: 100%; min-height: 36px; padding: 4px; border: 1px solid var(--preview-line); border-radius: 3px; background: #fffdf7; color: var(--preview-ink); text-align: right; }
+    #dokidoki-preview-draft-cards { display: grid; gap: 3px; padding: 4px; }
+    .preview-upgrade-card { position: relative; min-width: 0; padding: 0; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper-3); }
+    .preview-upgrade-card.has-warning { border-color: var(--preview-danger); }
+    .preview-upgrade-card-header { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 5px; min-height: 30px; padding: 3px 36px 3px 6px; color: var(--preview-ink); cursor: pointer; }
+    .preview-upgrade-card-header span { color: var(--preview-muted); font-variant-numeric: tabular-nums; }
+    .preview-row-reset { position: absolute; top: 2px; right: 3px; }
+    .preview-upgrade-card:not([open]) > .preview-row-reset { display: none; }
+    .preview-draft-groups { display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 4px; padding: 3px; }
+    .preview-upgrade-card-group { padding: 3px; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper); }
+    .preview-upgrade-card-group[data-group="chaos"] { grid-column: 1 / -1; }
+    .preview-upgrade-card-group h4 { margin: 0 0 3px; }
+    .preview-upgrade-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 2px 3px; }
+    .preview-upgrade-card-group[data-group="chaos"] .preview-upgrade-card-grid { grid-template-columns: repeat(6, minmax(0,1fr)); }
+    .preview-upgrade-card-field { display: grid; gap: 1px; min-width: 0; color: var(--preview-muted); font-size: 9px; }
+    .preview-upgrade-card-field input { width: 100%; min-height: 32px; padding: 2px; border: 1px solid var(--preview-line); border-radius: 3px; background: #fffdf7; color: var(--preview-ink); text-align: right; }
     .preview-resource-summary { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 6px; margin-bottom: 7px; }
     .preview-resource-summary .preview-metric.has-shortage { border-color: var(--preview-danger); background: rgba(142,38,54,.08); }
     .preview-resource-table .has-shortage td { color: var(--preview-danger); font-weight: 700; }
@@ -300,8 +290,6 @@
     #dokidoki-preview-stage[data-preview-width="900"] .preview-manager-selection:not([open]) > summary { min-height: var(--preview-touch); justify-content: flex-start; writing-mode: horizontal-tb; }
     #dokidoki-preview-stage[data-preview-width="900"] #dokidoki-preview-manager-layout:has(.preview-manager-selection:not([open])) { grid-template-columns: 1fr; }
     #dokidoki-preview-stage[data-preview-width="900"] .hvmepp-monster-list { max-height: 220px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    #dokidoki-preview-stage[data-preview-width="900"] .preview-upgrade-matrix-wrap { display: none; }
-    #dokidoki-preview-stage[data-preview-width="900"] #dokidoki-preview-upgrade-cards { display: grid; }
     #dokidoki-preview-stage[data-preview-width="640"] .preview-workspace-stats,
     #dokidoki-preview-stage[data-preview-width="375"] .preview-workspace-stats { justify-content: flex-start; }
     #dokidoki-preview-stage[data-preview-width="640"] #dokidoki-preview-lab-nav .preview-section-body,
@@ -309,6 +297,13 @@
     #dokidoki-preview-stage[data-preview-width="640"] .preview-roster-scroll > .msl { grid-template-columns: 58px minmax(0, 1fr) 58px 72px !important; grid-template-rows: repeat(4, 22px) !important; min-height: 96px !important; height: 96px !important; }
     #dokidoki-preview-stage[data-preview-width="640"] #monster_actions,
     #dokidoki-preview-stage[data-preview-width="375"] #monster_actions { grid-template-columns: 1fr !important; }
+    #dokidoki-preview-stage[data-preview-width="640"] .preview-draft-groups,
+    #dokidoki-preview-stage[data-preview-width="375"] .preview-draft-groups { grid-template-columns: 1fr; }
+    #dokidoki-preview-stage[data-preview-width="640"] .preview-upgrade-card-group[data-group="chaos"],
+    #dokidoki-preview-stage[data-preview-width="375"] .preview-upgrade-card-group[data-group="chaos"] { grid-column: auto; }
+    #dokidoki-preview-stage[data-preview-width="640"] .preview-upgrade-card-group[data-group="chaos"] .preview-upgrade-card-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+    #dokidoki-preview-stage[data-preview-width="375"] .preview-upgrade-card-group[data-group="chaos"] .preview-upgrade-card-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    #dokidoki-preview-stage[data-preview-width="375"] .preview-upgrade-card-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
     #dokidoki-preview-stage[data-preview-width="640"] #dokidoki-preview-profile-layout,
     #dokidoki-preview-stage[data-preview-width="375"] #dokidoki-preview-profile-layout { grid-template-columns: 1fr; }
     #dokidoki-preview-stage[data-preview-width="640"] .preview-profile-art,
@@ -460,25 +455,25 @@
         { key: 'WIS', zh: '智慧', group: 'primary', max: 25, crystal: 'Crystal of Knowledge', crystalZh: '智慧水晶' },
       ];
       const elementalUpgradeConfig = [
-        { key: 'FIRE', zh: '火', group: 'elemental', max: 50, crystal: 'Crystal of Flames', crystalZh: '火焰水晶' },
-        { key: 'COLD', zh: '冰', group: 'elemental', max: 50, crystal: 'Crystal of Frost', crystalZh: '冰冻水晶' },
-        { key: 'ELEC', zh: '雷', group: 'elemental', max: 50, crystal: 'Crystal of Lightning', crystalZh: '闪电水晶' },
-        { key: 'WIND', zh: '风', group: 'elemental', max: 50, crystal: 'Crystal of Tempest', crystalZh: '疾风水晶' },
-        { key: 'HOLY', zh: '圣', group: 'elemental', max: 50, crystal: 'Crystal of Devotion', crystalZh: '神圣水晶' },
-        { key: 'DARK', zh: '暗', group: 'elemental', max: 50, crystal: 'Crystal of Corruption', crystalZh: '暗黑水晶' },
+        { key: 'FIRE', zh: '火焰', group: 'elemental', max: 50, crystal: 'Crystal of Flames', crystalZh: '火焰水晶' },
+        { key: 'COLD', zh: '冰冷', group: 'elemental', max: 50, crystal: 'Crystal of Frost', crystalZh: '冰冻水晶' },
+        { key: 'ELEC', zh: '闪电', group: 'elemental', max: 50, crystal: 'Crystal of Lightning', crystalZh: '闪电水晶' },
+        { key: 'WIND', zh: '疾风', group: 'elemental', max: 50, crystal: 'Crystal of Tempest', crystalZh: '疾风水晶' },
+        { key: 'HOLY', zh: '神圣', group: 'elemental', max: 50, crystal: 'Crystal of Devotion', crystalZh: '神圣水晶' },
+        { key: 'DARK', zh: '黑暗', group: 'elemental', max: 50, crystal: 'Crystal of Corruption', crystalZh: '暗黑水晶' },
       ];
       const chaosUpgradeConfig = [
         { label: 'Scavenging', zh: '寻宝', group: 'chaos', max: 20 },
-        { label: 'Fortitude', zh: '坚韧', group: 'chaos', max: 20 },
-        { label: 'Brutality', zh: '残暴', group: 'chaos', max: 20 },
-        { label: 'Accuracy', zh: '精准', group: 'chaos', max: 20 },
+        { label: 'Fortitude', zh: '刚毅', group: 'chaos', max: 20 },
+        { label: 'Brutality', zh: '蛮横', group: 'chaos', max: 20 },
+        { label: 'Accuracy', zh: '命中', group: 'chaos', max: 20 },
         { label: 'Precision', zh: '精密', group: 'chaos', max: 20 },
         { label: 'Overpower', zh: '压制', group: 'chaos', max: 20 },
         { label: 'Interception', zh: '拦截', group: 'chaos', max: 20 },
-        { label: 'Dissipation', zh: '消散', group: 'chaos', max: 20 },
+        { label: 'Dissipation', zh: '弥散', group: 'chaos', max: 20 },
         { label: 'Evasion', zh: '闪避', group: 'chaos', max: 20 },
         { label: 'Defense', zh: '防御', group: 'chaos', max: 20 },
-        { label: 'Warding', zh: '结界', group: 'chaos', max: 20 },
+        { label: 'Warding', zh: '魔防', group: 'chaos', max: 20 },
         { label: 'Swiftness', zh: '迅捷', group: 'chaos', max: 20 },
       ].map(item => ({ ...item, key: item.label }));
       const upgradeGroups = [
@@ -486,6 +481,7 @@
         { key: 'elemental', en: 'Elemental mitigations', zh: '元素减伤', items: elementalUpgradeConfig },
         { key: 'chaos', en: 'Chaos upgrades', zh: '混沌升级', items: chaosUpgradeConfig },
       ];
+      const upgradeEditorGroups = upgradeGroups;
       const allUpgradeConfig = upgradeGroups.flatMap(group => group.items);
       const previewToolbarMode = width => width >= 1020 ? 'single' : width >= 640 ? 'double' : 'drawer';
       const stage = document.getElementById('dokidoki-preview-stage');
@@ -535,7 +531,7 @@
       const plannerMonsters = new Map();
       const plannerSelected = new Set(['50', '51', '52']);
       const plannerOpenCards = new Set();
-      let activePlannerSlot = '50', draftMode = 'current', plannerLog = null, toolDrawerOpen = false, toolDrawerMode = 'single';
+      let activePlannerSlot = '50', plannerCardSelectionKey = '', draftMode = 'current', plannerLog = null, toolDrawerOpen = false, toolDrawerMode = 'single';
       const makePlannerMonster = slot => {
         const numericSlot = Number(slot), source = rows[numericSlot - 1];
         if (!source) return null;
@@ -625,15 +621,15 @@
           <header class="preview-hvmm-header preview-surface" data-preview-hvmm-section="header"><div><p class="preview-kicker">HV Monster Manager</p><h1 class="preview-title" data-en="PL Planner and Upgrader" data-zh="PL计划器与怪物升级">PL计划器与怪物升级</h1></div><div class="hvmepp-lang-switch"><a href="#list" class="preview-chip" data-en="Close" data-zh="关闭">关闭</a></div></header>
           <details class="hvmepp-card preview-manager-selection" data-preview-hvmm-section="selection" open><summary class="hvmepp-section-heading"><span data-en="Select monsters" data-zh="选择怪物">选择怪物</span></summary><div class="hvmepp-section-body"><div class="hvmepp-selection-meta"><strong id="dokidoki-preview-planner-selection-summary"></strong><span data-en="No pagination; every selected monster appears in the editor." data-zh="不分页；所有选中怪物都会进入升级编辑器。">不分页；所有选中怪物都会进入升级编辑器。</span></div><div id="dokidoki-preview-planner-selection" class="hvmepp-monster-list" role="listbox" aria-multiselectable="true"></div></div></details>
           <div data-preview-hvmm-section="workspace">
-            <section id="dokidoki-preview-planner-controls" class="hvmepp-card"><h2 class="hvmepp-section-heading" data-en="Planner settings" data-zh="计划设置">计划设置</h2><div class="hvmepp-controls"><label><span data-en="Target PL" data-zh="目标PL">目标PL</span><input id="dokidoki-preview-target-pl" type="number" min="0" max="2250" value="750"></label><label><span data-en="Market source" data-zh="水晶市场价">水晶市场价</span><select disabled><option data-en="Synthetic inventory" data-zh="虚构库存">虚构库存</option></select></label></div><div class="preview-planner-status" aria-live="polite"><span id="dokidoki-preview-draft-status" data-preview-draft-mode="current"><span class="preview-chip" data-draft-label="current" data-en="Current levels" data-zh="当前等级">当前等级</span><span class="preview-chip is-good" data-draft-label="exact" data-en="Exact plan" data-zh="精确方案" hidden>精确方案</span><span class="preview-chip is-warn" data-draft-label="custom" data-en="Custom PL" data-zh="自定义PL" hidden>自定义PL</span><span class="preview-chip is-good" data-draft-label="chaos" data-en="Chaos only" data-zh="仅混沌" hidden>仅混沌</span><span class="preview-chip is-warn" data-draft-label="mixed" data-en="Mixed batch" data-zh="混合批次" hidden>混合批次</span><span class="preview-chip is-warn" data-draft-label="invalid" data-en="Invalid draft" data-zh="草案无效" hidden>草案无效</span></span><p id="dokidoki-preview-draft-message" class="preview-draft-message"></p></div><div id="dokidoki-preview-recalculate-warning" class="preview-warning" role="alert" hidden><strong data-en="Recalculating will replace every manual target, including Chaos upgrades." data-zh="重新计算会覆盖全部手动目标，包括混沌升级。">重新计算会覆盖全部手动目标，包括混沌升级。</strong><div class="preview-warning-actions"><button id="dokidoki-preview-confirm-recalculate" type="button" data-preview-local-action data-en="Replace with exact plan" data-zh="覆盖为精确方案">覆盖为精确方案</button><button id="dokidoki-preview-cancel-recalculate" type="button" data-preview-local-action class="is-secondary" data-en="Keep editing" data-zh="继续编辑">继续编辑</button></div></div><div class="hvmepp-top-actions"><button id="dokidoki-preview-calculate" type="button" data-preview-local-action data-en="Calculate exact plan" data-zh="计算精确方案">计算精确方案</button><button id="dokidoki-preview-reset-draft" type="button" data-preview-local-action class="is-secondary" data-en="Reset draft" data-zh="重置草案">重置草案</button><button id="dokidoki-preview-review-confirmation" type="button" data-preview-local-action data-en="Review confirmation" data-zh="预览确认">预览确认</button><button id="dokidoki-preview-direct-buy" type="button" disabled data-preview-action data-en="Direct buy — disabled" data-zh="直接购买 — 已禁用">直接购买 — 已禁用</button><button id="dokidoki-preview-place-orders" type="button" disabled data-preview-action data-en="Place orders — disabled" data-zh="提交订单 — 已禁用">提交订单 — 已禁用</button><button id="dokidoki-preview-run-upgrade" type="button" disabled data-preview-action data-en="Run upgrade — offline disabled" data-zh="执行升级 — 离线禁用">执行升级 — 离线禁用</button></div></section>
-            <section id="dokidoki-preview-upgrade-editor" class="hvmepp-card"><h2 class="hvmepp-section-heading"><span data-en="Upgrade editor" data-zh="升级编辑器">升级编辑器</span></h2><div class="preview-upgrade-toolbar"><p data-en="The matrix itself is the plan. Chaos levels do not change PL." data-zh="升级矩阵本身就是方案；混沌等级不会改变PL。">升级矩阵本身就是方案；混沌等级不会改变PL。</p><div><span class="preview-chip" data-upgrade-group="primary" data-en="6 Primary" data-zh="6项主属性">6项主属性</span> <span class="preview-chip" data-upgrade-group="elemental" data-en="6 Elemental" data-zh="6项元素减伤">6项元素减伤</span> <span class="preview-chip" data-upgrade-group="chaos" data-en="12 Chaos" data-zh="12项混沌升级">12项混沌升级</span></div></div><div class="preview-upgrade-matrix-wrap"><table id="dokidoki-preview-upgrade-matrix" class="preview-upgrade-matrix"></table></div><div id="dokidoki-preview-upgrade-cards"></div></section>
+            <section id="dokidoki-preview-planner-controls" class="hvmepp-card"><h2 class="hvmepp-section-heading" data-en="Planner settings" data-zh="计划设置">计划设置</h2><div class="hvmepp-controls"><label><span data-en="Target PL" data-zh="目标PL">目标PL</span><input id="dokidoki-preview-target-pl" type="number" min="0" max="2250" value="750"></label><label><span data-en="Market source" data-zh="水晶市场价">水晶市场价</span><select disabled><option data-en="Synthetic inventory" data-zh="虚构库存">虚构库存</option></select></label></div><div class="preview-planner-status" aria-live="polite"><span id="dokidoki-preview-draft-status" data-preview-draft-mode="current"><span class="preview-chip" data-draft-label="current" data-en="Current levels" data-zh="当前等级">当前等级</span><span class="preview-chip is-good" data-draft-label="exact" data-en="Exact plan" data-zh="精确方案" hidden>精确方案</span><span class="preview-chip is-warn" data-draft-label="custom" data-en="Custom PL" data-zh="自定义PL" hidden>自定义PL</span><span class="preview-chip is-good" data-draft-label="chaos" data-en="Chaos only" data-zh="仅混沌" hidden>仅混沌</span><span class="preview-chip is-warn" data-draft-label="mixed" data-en="Mixed batch" data-zh="混合批次" hidden>混合批次</span><span class="preview-chip is-warn" data-draft-label="invalid" data-en="Invalid draft" data-zh="草案无效" hidden>草案无效</span></span><p id="dokidoki-preview-draft-message" class="preview-draft-message"></p></div><div id="dokidoki-preview-recalculate-warning" class="preview-warning" role="alert" hidden><strong data-en="Recalculating will replace every manual target, including Chaos upgrades." data-zh="重新计算会覆盖全部手动目标，包括混沌升级。">重新计算会覆盖全部手动目标，包括混沌升级。</strong><div class="preview-warning-actions"><button id="dokidoki-preview-confirm-recalculate" type="button" data-preview-local-action data-en="Replace with exact plan" data-zh="覆盖为精确方案">覆盖为精确方案</button><button id="dokidoki-preview-cancel-recalculate" type="button" data-preview-local-action class="is-secondary" data-en="Keep editing" data-zh="继续编辑">继续编辑</button></div></div><div class="hvmepp-top-actions"><button id="dokidoki-preview-calculate" type="button" data-preview-local-action data-en="Calculate exact plan" data-zh="计算精确方案">计算精确方案</button><button id="dokidoki-preview-refresh-data" type="button" disabled data-preview-action data-en="Refresh data — disabled" data-zh="刷新数据 — 已禁用">刷新数据 — 已禁用</button><button id="dokidoki-preview-run-upgrade" type="button" disabled data-preview-action data-en="Run upgrade — offline disabled" data-zh="升级选中怪物 — 离线禁用">升级选中怪物 — 离线禁用</button><button id="dokidoki-preview-reset-draft" type="button" data-preview-local-action class="is-secondary" data-en="Reset draft" data-zh="重置草案">重置草案</button><button id="dokidoki-preview-review-confirmation" type="button" data-preview-local-action data-en="Review confirmation" data-zh="预览确认">预览确认</button><button id="dokidoki-preview-direct-buy" type="button" disabled data-preview-action data-en="Direct buy — disabled" data-zh="直接购买 — 已禁用">直接购买 — 已禁用</button><button id="dokidoki-preview-place-orders" type="button" disabled data-preview-action data-en="Place orders — disabled" data-zh="提交订单 — 已禁用">提交订单 — 已禁用</button></div></section>
+            <section id="dokidoki-preview-upgrade-editor" class="hvmepp-card"><h2 class="hvmepp-section-heading"><span data-en="Upgrade editor" data-zh="升级编辑器">升级编辑器</span></h2><div class="preview-upgrade-toolbar"><p data-en="Primary, elemental and all 12 Chaos upgrades are shown together in collapsible monster cards." data-zh="主要属性、元素减伤和完整12项混沌升级在可折叠怪物卡中同时显示。">主要属性、元素减伤和完整12项混沌升级在可折叠怪物卡中同时显示。</p><p id="dokidoki-preview-editor-scope" class="preview-editor-scope"></p></div><div id="dokidoki-preview-editor-group-actions" class="preview-editor-group-actions"></div><div id="dokidoki-preview-draft-cards"></div></section>
             <details id="dokidoki-preview-resource-section" class="hvmepp-card preview-collapsible-card"><summary class="hvmepp-section-heading"><span data-en="Upgrade resources, inventory and shortage" data-zh="升级资源需求、库存与缺口">升级资源需求、库存与缺口</span><span id="dokidoki-preview-shortage-badge" class="preview-chip">0</span></summary><div class="hvmepp-section-body"><div class="preview-resource-summary"><div class="preview-metric"><strong id="dokidoki-preview-crystal-total">0</strong><span data-en="Crystals required" data-zh="所需水晶">所需水晶</span></div><div class="preview-metric"><strong id="dokidoki-preview-token-total">0</strong><span data-en="Chaos Tokens" data-zh="混沌令牌">混沌令牌</span></div><div class="preview-metric"><strong id="dokidoki-preview-resource-shortage">0</strong><span data-en="Shortage" data-zh="缺口">缺口</span></div><div class="preview-metric"><strong id="dokidoki-preview-projected-count">0</strong><span data-en="Projected PL" data-zh="投影PL">投影PL</span></div></div><div id="dokidoki-preview-resource-result"></div></div></details>
             <details id="dokidoki-preview-log-section" class="hvmepp-card preview-collapsible-card"><summary class="hvmepp-section-heading"><span data-en="Execution log" data-zh="日志">日志</span></summary><pre id="dokidoki-preview-planner-log" class="hvmepp-log-output">[预览] 不会发送任何Hentaiverse请求。</pre></details>
           </div><dialog id="dokidoki-preview-confirm-dialog" class="preview-confirm-dialog" aria-labelledby="dokidoki-preview-confirm-title"><div><h2 id="dokidoki-preview-confirm-title" data-en="Confirm upgrade draft" data-zh="确认升级草案">确认升级草案</h2><p id="dokidoki-preview-confirm-summary"></p><details><summary data-en="Full monster details" data-zh="完整逐怪明细">完整逐怪明细</summary><ol id="dokidoki-preview-confirm-list" class="preview-confirm-list"></ol></details><div class="preview-confirm-actions"><button id="dokidoki-preview-confirm-execute" type="button" disabled data-preview-action data-en="Execute — offline disabled" data-zh="执行 — 离线禁用">执行 — 离线禁用</button><button id="dokidoki-preview-confirm-cancel" type="button" class="is-secondary" data-preview-local-action data-en="Cancel" data-zh="取消">取消</button></div></div></dialog>`;
         article.dataset.previewDraftMode = 'current';
       };
       const localText = (en, zh) => isChinese ? zh : en;
-      const upgradeLabel = item => isChinese && item.zh ? `${item.key} · ${item.zh}` : item.key;
+      const upgradeLabel = item => isChinese && item.zh ? item.zh : item.key;
       const makeLocalButton = (text, action, extra = {}) => {
         const button = document.createElement('button');
         button.type = 'button';
@@ -649,15 +645,32 @@
         increment.setAttribute('aria-label', localText(`Increase ${group.en} by one`, `${group.zh}全部加1`));
         increment.title = increment.getAttribute('aria-label');
         actions.appendChild(increment);
-        if (group.key !== 'chaos') {
+        if (!group.key.startsWith('chaos')) {
           const equalize = makeLocalButton('=', 'group-equalize', { group: group.key, slot });
           equalize.setAttribute('aria-label', localText(`Equalize ${group.en}`, `拉平${group.zh}`));
           equalize.title = equalize.getAttribute('aria-label');
           actions.appendChild(equalize);
         }
+        const reset = makeLocalButton('↺', 'group-reset', { group: group.key, slot });
+        reset.setAttribute('aria-label', localText(`Reset ${group.en}`, `重置${group.zh}`));
+        reset.title = reset.getAttribute('aria-label');
+        actions.appendChild(reset);
         return actions;
       };
-      const makeLevelInput = (monster, item, compact = false) => {
+      const renderEditorControls = monsters => {
+        const actions = document.getElementById('dokidoki-preview-editor-group-actions');
+        const scope = document.getElementById('dokidoki-preview-editor-scope');
+        if (!actions || !scope) return;
+        scope.textContent = localText(`Selected monsters: ${monsters.length}`, `已选怪物：${monsters.length}只`);
+        actions.replaceChildren(...upgradeEditorGroups.map(group => {
+          const bar = document.createElement('div'), label = document.createElement('strong');
+          bar.className = 'preview-editor-group-action';
+          label.textContent = localText(group.en, group.zh);
+          bar.append(label, makeGroupActions(group));
+          return bar;
+        }));
+      };
+      const makeLevelInput = (monster, item) => {
         const input = document.createElement('input');
         input.type = 'number';
         input.min = String(monster.current[item.key]);
@@ -667,14 +680,6 @@
         input.dataset.upgradeKey = item.key;
         input.setAttribute('aria-invalid', String(Boolean(monster.invalid[item.key])));
         input.setAttribute('aria-label', localText(`${monster.name} ${item.key} target level`, `${monster.name} ${item.zh || item.key}目标等级`));
-        if (!compact) {
-          const editor = document.createElement('label');
-          editor.className = 'preview-level-editor';
-          const current = document.createElement('small');
-          current.textContent = `${monster.current[item.key]} →`;
-          editor.append(current, input);
-          return editor;
-        }
         return input;
       };
       const renderPlannerSelection = () => {
@@ -697,111 +702,53 @@
         });
         list.replaceChildren(fragment);
       };
-      const renderUpgradeMatrix = monsters => {
-        const table = document.getElementById('dokidoki-preview-upgrade-matrix');
-        if (!table) return;
-        const head = document.createElement('thead'), groupRow = document.createElement('tr'), itemRow = document.createElement('tr');
-        const identities = [
-          ['#', 'preview-id-slot'], [localText('Name', '名称'), 'preview-id-name'],
-          [localText('Current PL', '当前PL'), 'preview-id-current'], [localText('Projected PL', '投影PL'), 'preview-id-projected'],
-          [localText('Reset', '重置'), 'preview-id-reset'],
-        ];
-        identities.forEach(([label, className]) => {
-          const th = document.createElement('th');
-          th.rowSpan = 2;
-          th.className = `preview-id-cell ${className}`;
-          th.textContent = label;
-          groupRow.appendChild(th);
-        });
-        upgradeGroups.forEach(group => {
-          const th = document.createElement('th');
-          th.colSpan = group.items.length;
-          th.className = 'preview-group-heading';
-          const label = document.createElement('span');
-          label.textContent = localText(group.en, group.zh);
-          th.append(label, makeGroupActions(group));
-          groupRow.appendChild(th);
-          group.items.forEach(item => {
-            const itemHead = document.createElement('th');
-            itemHead.textContent = upgradeLabel(item);
-            itemHead.title = localText(item.key, item.zh || item.key);
-            itemRow.appendChild(itemHead);
-          });
-        });
-        head.append(groupRow, itemRow);
-        const body = document.createElement('tbody');
-        const targetPL = Number(document.getElementById('dokidoki-preview-target-pl').value);
-        monsters.forEach(monster => {
-          const row = document.createElement('tr'), projection = projectedPL(monster), dirty = isMonsterDirty(monster), warning = classifyPreviewMonster(monster, targetPL) === 'invalid';
-          row.dataset.upgradeRow = monster.slot;
-          row.tabIndex = -1;
-          row.classList.toggle('is-custom', dirty);
-          row.classList.toggle('has-warning', warning);
-          const identityValues = [monster.slot, monster.name, monster.currentPL, warning ? `${projection} (${projection - targetPL >= 0 ? '+' : ''}${projection - targetPL})` : projection];
-          const identityClasses = ['preview-id-slot', 'preview-id-name', 'preview-id-current', 'preview-id-projected'];
-          identityValues.forEach((value, index) => {
-            const cell = document.createElement('td');
-            cell.className = `preview-id-cell ${identityClasses[index]}`;
-            cell.textContent = value;
-            row.appendChild(cell);
-          });
-          const resetCell = document.createElement('td');
-          resetCell.className = 'preview-id-cell preview-id-reset';
-          const reset = makeLocalButton('↺', 'row-reset', { slot: monster.slot });
-          reset.className = 'preview-row-reset';
-          reset.setAttribute('aria-label', localText(`Reset ${monster.name}`, `重置${monster.name}`));
-          resetCell.appendChild(reset);
-          row.appendChild(resetCell);
-          allUpgradeConfig.forEach(item => {
-            const cell = document.createElement('td');
-            cell.appendChild(makeLevelInput(monster, item));
-            row.appendChild(cell);
-          });
-          body.appendChild(row);
-        });
-        table.replaceChildren(head, body);
-      };
       const renderUpgradeCards = monsters => {
-        const container = document.getElementById('dokidoki-preview-upgrade-cards');
+        const container = document.getElementById('dokidoki-preview-draft-cards');
         if (!container) return;
-        container.querySelectorAll('[data-upgrade-card]').forEach(card => {
-          if (card.open) plannerOpenCards.add(card.dataset.upgradeCard); else plannerOpenCards.delete(card.dataset.upgradeCard);
-        });
+        const selectionKey = monsters.map(monster => monster.slot).join(',');
+        if (plannerCardSelectionKey === selectionKey) {
+          container.querySelectorAll('[data-upgrade-card]').forEach(card => {
+            if (card.open) plannerOpenCards.add(card.dataset.upgradeCard); else plannerOpenCards.delete(card.dataset.upgradeCard);
+          });
+        } else {
+          plannerCardSelectionKey = selectionKey;
+          plannerOpenCards.clear();
+          if (monsters[0]) plannerOpenCards.add(monsters[0].slot);
+        }
         const targetPL = Number(document.getElementById('dokidoki-preview-target-pl').value), fragment = document.createDocumentFragment();
         monsters.forEach(monster => {
-          const projection = projectedPL(monster), dirty = isMonsterDirty(monster), warning = classifyPreviewMonster(monster, targetPL) === 'invalid';
+          const projection = projectedPL(monster), warning = classifyPreviewMonster(monster, targetPL) === 'invalid';
           const card = document.createElement('details');
           card.className = `preview-upgrade-card${warning ? ' has-warning' : ''}`;
           card.dataset.upgradeCard = monster.slot;
-          card.open = plannerOpenCards.has(monster.slot) || monster.slot === activePlannerSlot || dirty || Boolean(monster.error);
-          const summary = document.createElement('summary');
-          summary.innerHTML = `<span>#${monster.slot}</span><strong></strong><span>PL ${monster.currentPL} → ${projection}</span>`;
-          summary.querySelector('strong').textContent = monster.name;
-          const body = document.createElement('div');
-          body.className = 'preview-upgrade-card-body';
-          upgradeGroups.forEach(group => {
-            const section = document.createElement('section');
+          card.open = plannerOpenCards.has(monster.slot);
+          const header = document.createElement('summary'), identity = document.createElement('strong'), status = document.createElement('span');
+          header.className = 'preview-upgrade-card-header';
+          identity.textContent = `#${monster.slot} ${monster.name}`;
+          status.textContent = `PL ${monster.currentPL} → ${projection}`;
+          const reset = makeLocalButton('↺', 'row-reset', { slot: monster.slot });
+          reset.className = 'preview-row-reset';
+          reset.setAttribute('aria-label', localText(`Reset ${monster.name}`, `重置${monster.name}`));
+          header.append(identity, status);
+          const groups = document.createElement('div');
+          groups.className = 'preview-draft-groups';
+          upgradeEditorGroups.forEach(group => {
+            const section = document.createElement('section'), heading = document.createElement('h4'), grid = document.createElement('div');
             section.className = 'preview-upgrade-card-group';
-            const heading = document.createElement('h4'), label = document.createElement('span');
-            label.textContent = localText(group.en, group.zh);
-            heading.append(label, makeGroupActions(group, monster.slot));
-            const grid = document.createElement('div');
+            section.dataset.group = group.key;
+            heading.textContent = localText(group.en, group.zh);
             grid.className = 'preview-upgrade-card-grid';
             group.items.forEach(item => {
-              const field = document.createElement('label');
+              const field = document.createElement('label'), text = document.createElement('span');
               field.className = 'preview-upgrade-card-field';
-              const text = document.createElement('span');
-              text.textContent = `${upgradeLabel(item)} · ${monster.current[item.key]} →`;
-              field.append(text, makeLevelInput(monster, item, true));
+              text.textContent = `${upgradeLabel(item)} ${monster.current[item.key]} →`;
+              field.append(text, makeLevelInput(monster, item));
               grid.appendChild(field);
             });
             section.append(heading, grid);
-            body.appendChild(section);
+            groups.appendChild(section);
           });
-          const reset = makeLocalButton(localText('Reset monster', '重置该怪物'), 'row-reset', { slot: monster.slot });
-          reset.classList.add('is-secondary');
-          body.appendChild(reset);
-          card.append(summary, body);
+          card.append(header, reset, groups);
           fragment.appendChild(card);
         });
         container.replaceChildren(fragment);
@@ -908,7 +855,7 @@
       };
       const renderUpgradeEditor = () => {
         const monsters = selectedPlannerMonsters();
-        renderUpgradeMatrix(monsters);
+        renderEditorControls(monsters);
         renderUpgradeCards(monsters);
       };
       const renderPlanner = () => {
@@ -969,7 +916,7 @@
         renderPlanner();
       };
       const applyGroupAction = (groupKey, action, slot = '') => {
-        const group = upgradeGroups.find(item => item.key === groupKey), monsters = (slot ? [ensurePlannerMonster(slot)] : selectedPlannerMonsters()).filter(Boolean);
+        const group = upgradeEditorGroups.find(item => item.key === groupKey), monsters = (slot ? [ensurePlannerMonster(slot)] : selectedPlannerMonsters()).filter(Boolean);
         if (!group) return;
         monsters.forEach(monster => {
           monster.error = '';
@@ -977,7 +924,7 @@
           else if (action === 'group-equalize') {
             const target = Math.max(...group.items.map(item => monster.target[item.key]));
             group.items.forEach(item => { monster.target[item.key] = Math.min(item.max, Math.max(monster.current[item.key], target)); });
-          }
+          } else if (action === 'group-reset') group.items.forEach(item => { monster.target[item.key] = monster.current[item.key]; });
           group.items.forEach(item => {
             monster.raw[item.key] = String(monster.target[item.key]);
             delete monster.invalid[item.key];
