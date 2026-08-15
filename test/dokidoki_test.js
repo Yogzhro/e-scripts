@@ -11,30 +11,35 @@ const {
   RACES,
   pageType,
   raceKey,
+  detailGroupKey,
   syncList,
   syncDetail,
   makeCss,
   assetUrl,
+  syncToolGroups,
 } = require(scriptPath);
 
 assert.match(source, /\/\/ @name\s+dokidoki/);
-assert.match(source, /\/\/ @version\s+0\.1\.1\.0/);
+assert.match(source, /\/\/ @version\s+0\.2\.1\.0/);
 assert.match(source, /\/\/ @author\s+Reina/);
 assert.match(source, /\/\/ @match\s+https:\/\/hentaiverse\.org\/\*/);
 assert.match(source, /\/\/ @match\s+https:\/\/alt\.hentaiverse\.org\/\*/);
 assert.match(source, /\/\/ @grant\s+none/);
 assert.equal((source.match(/new MutationObserver/g) || []).length, 1);
-assert(!/\b(?:fetch|XMLHttpRequest|GM_xmlhttpRequest)\s*\(/.test(source));
+assert(!/\b(?:XMLHttpRequest|GM_xmlhttpRequest)\s*\(/.test(source));
+assert.equal((source.match(/\.fetch\(/g) || []).length, 1, 'skills must be the only same-origin GET path');
 assert(!source.includes('D:\\trans\\scripts'));
 assert(!source.includes('data:image/'));
 assert(!/HV Monster Portraits|hvmp-v0\.0\.1\.0|HV%20Monster%20Portraits/.test(source));
-assert(source.includes('e-scripts@dokidoki-v0.1.1.0/resource/dokidoki/dist'));
+assert(source.includes('e-scripts@dokidoki-v0.2.0.0/resource/dokidoki/dist'));
 
 const acceptedUrls = [
   ['https://hentaiverse.org/?s=Bazaar&ss=ml', 'list'],
   ['https://alt.hentaiverse.org/?ss=ml&s=Bazaar', 'list'],
   ['https://hentaiverse.org/?s=Bazaar&ss=ml&slot=1', 'detail'],
-  ['https://alt.hentaiverse.org/?pane=skills&slot=200&s=Bazaar&ss=ml', 'detail'],
+  ['https://alt.hentaiverse.org/?pane=skills&slot=200&s=Bazaar&ss=ml', 'skill-redirect'],
+  ['https://alt.hentaiverse.org/?pane=skills&slot=200&s=Bazaar&ss=ml#dokidoki-native', 'detail'],
+  ['https://hentaiverse.org/?s=Bazaar&ss=ml#planner/200', 'list'],
 ];
 for (const [url, expected] of acceptedUrls) assert.equal(pageType(url), expected, url);
 for (const url of [
@@ -73,6 +78,24 @@ for (const [key, english, chinese] of expectedRaces) {
 }
 assert.equal(raceKey('Unknown'), '');
 assert.equal(raceKey('Dragonkin Princess'), 'dragonkin');
+assert.equal(detailGroupKey({ textContent: 'Monster Chow · Rename Monster' }), 'care');
+assert.equal(detailGroupKey({ textContent: 'Scavenging · Fortitude · Chaos Tokens' }), 'chaos');
+assert.equal(detailGroupKey({ textContent: 'Primary attributes · Elemental mitigation' }), 'combat');
+assert.equal(detailGroupKey({ textContent: 'Unclassified native detail block' }), 'combat');
+
+const controls = [
+  { id: '', value: 'Gift Summary', classList: { contains: () => false }, dataset: {} },
+  { id: '', value: 'Item Prices', classList: { contains: () => false }, dataset: {} },
+  { id: 'hvut-ml-up-button', value: 'Monster Upgrader', classList: { contains: () => false }, dataset: {} },
+  { id: 'hvmepp-planner-entry', value: 'PL Planner', classList: { contains: value => value === 'hvmepp-entry' }, dataset: {} },
+];
+syncToolGroups({
+  querySelectorAll(selector) {
+    assert.equal(selector, '.hvut-ml-side input, .hvut-ml-side button');
+    return controls;
+  },
+});
+assert.deepEqual(controls.map(control => control.dataset.dokidokiGroup), ['utility', 'data', 'monster', 'manager']);
 
 function row(race, extraCells = 2) {
   const children = [
@@ -89,11 +112,20 @@ const nativeRow = row('Dragonkin');
 const hvUtilsRow = row('机械体', 5);
 const unknownRow = row('Unknown');
 const listRoot = {
+  documentElement: { dataset: {} },
+  body: { textContent: '' },
+  createElement() { return { type: '', dataset: {}, setAttribute() {}, title: '' }; },
   querySelectorAll(selector) {
-    assert.equal(selector, '#slot_pane > div');
+    assert.equal(selector, '#slot_pane > .msl, #slot_pane > div');
     return [nativeRow, hvUtilsRow, unknownRow];
   },
 };
+for (const item of [nativeRow, hvUtilsRow, unknownRow]) {
+  item.classList = { contains: value => value === 'msl' };
+  item.dataset = {};
+  item.setAttribute = () => {};
+  item.children[0].querySelector = () => ({ dataset: {} });
+}
 const counts = [nativeRow, hvUtilsRow, unknownRow].map(item => item.children.length);
 const warnings = [];
 const originalWarn = console.warn;
@@ -179,15 +211,23 @@ assert.equal(detailWarnings.length, 2, 'detail asset failure and unknown race sh
 
 const css = makeCss();
 assert.match(css, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
-assert.match(css, /width:84px;height:126px/);
-assert.match(css, /background-size:1092px 126px/);
-assert.match(css, /#dokidoki-toolbar \.hvut-ml-side\{[^}]*flex-direction:row!important/);
+assert.match(css, /--dokidoki-page:#E3E0D1/);
+assert.match(css, /--dokidoki-ink:#3F302B/);
+assert.match(css, /--dokidoki-amber:#9B6A24/);
+assert.match(css, /width:100%!important;max-width:100%!important;min-width:0!important/);
+assert.match(css, /width:var\(--dokidoki-list-portrait-w\);height:var\(--dokidoki-list-portrait-h\)/);
+assert.match(css, /#dokidoki-toolbar \.hvut-ml-side\{[^}]*grid-template-columns/);
+assert.match(css, /\[data-dokidoki-group="manager"\]/);
+assert.match(css, /#dokidoki-list-view>\.hvut-ml-summary\{position:relative!important/);
 assert.match(css, /#monster_outer\[data-dokidoki-detail="1"\]/);
-assert.match(css, /:not\(\.dokidoki-detail\):not\(#monster_head\)\{background-color:var\(--dokidoki-surface\)!important/);
-assert.match(css, /@media \(min-width:1320px\)/);
-assert.match(css, /width:360px;height:540px/);
-assert.match(css, /@media \(max-width:1319px\)/);
-assert.match(css, /width:280px;height:420px/);
+assert.match(css, /#dokidoki-detail-content>\*\{[^}]*background:var\(--dokidoki-surface-strong\)!important/);
+assert.match(css, /\[data-dokidoki-group="combat"\].*\[data-dokidoki-group="chaos"\]/);
+assert.match(css, /\.dokidoki-danger-zone\{[^}]*var\(--dokidoki-danger\)/);
+assert.match(css, /@media \(min-width:1180px\)/);
+assert.match(css, /width:var\(--dokidoki-detail-portrait-w\)/);
+assert.match(css, /height:var\(--dokidoki-detail-portrait-h\)/);
+assert.match(css, /@media \(max-width:900px\)/);
+assert.match(css, /\.dokidoki-active #csp\{[^}]*overflow-x:hidden!important/);
 assert.equal((css.match(/data-dokidoki-race=/g) || []).length, 13);
 
 console.log('dokidoki tests passed.');

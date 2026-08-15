@@ -49,8 +49,8 @@ function loadFunction(name, dependencies = {}) {
 }
 
 assert(source.includes("const CACHE_KEY = 'hv_monster_manager_cache_v1'"));
-assert(source.includes('// @version      0.3.3.0'));
-assert(source.includes("const ADDON_VERSION = '0.3.3.0'"));
+assert(source.includes('// @version      0.3.5.0'));
+assert(source.includes("const ADDON_VERSION = '0.3.5.0'"));
 
 const normalizeMonsterLevels = (levels) => {
   if (!levels || typeof levels !== 'object' || attrs.some((attr) => !Number.isFinite(Number(levels[attr])))) return null;
@@ -159,7 +159,7 @@ const saveCacheSource = extractFunction('saveCache');
 assert(saveCacheSource.includes('GM_setValue(CACHE_KEY, storedCache)'), 'cache must be saved as a structured GM value');
 assert(!saveCacheSource.includes('JSON.stringify'), 'the shared cache must not be stringified');
 assert(extractFunction('renderPanel').includes('hydrateMonsterCache(runtime.monsterList)'));
-assert(extractFunction('loadSelectedMonsters').includes('saveCache()'));
+assert(extractFunction('loadSelectedDrafts').includes('saveCache()'));
 assert(extractFunction('refreshMarketSnapshot').includes('saveCache()'));
 assert(extractFunction('applyMonsterRename').includes('saveCache()'));
 assert(extractFunction('executeBatchUpgradePlan').includes('saveCache()'));

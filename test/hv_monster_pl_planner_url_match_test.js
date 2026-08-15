@@ -22,22 +22,26 @@ assert(
   'userscript metadata must not use a broader regular-expression include'
 );
 
-assert(
-  source.includes('if (!MONSTER_LAB_URLS.includes(location.href)) return;'),
-  'the entry guard must use the complete-URL allowlist directly'
-);
-const isSupportedPage = (url) => exactUrls.includes(url.href);
+assert(source.includes("currentUrl.searchParams.get('s') === 'Bazaar'"));
+assert(source.includes("currentUrl.searchParams.get('ss') === 'ml'"));
+assert(source.includes('/^#planner\\/[1-9]\\d*$/'));
+const isSupportedPage = (url) => ['hentaiverse.org', 'alt.hentaiverse.org'].includes(url.hostname)
+  && url.protocol === 'https:' && url.pathname === '/'
+  && [...url.searchParams.keys()].length === 2
+  && url.searchParams.get('s') === 'Bazaar' && url.searchParams.get('ss') === 'ml'
+  && (!url.hash || /^#planner\/[1-9]\d*$/.test(url.hash));
 
 const cases = [
   [exactUrls[0], true],
   [exactUrls[1], true],
   ['https://hentaiverse.org/?s=Bazaar&ss=ar', false],
   ['https://hentaiverse.org/?s=Bazaar&ss=ml&slot=139', false],
-  ['https://hentaiverse.org/?ss=ml&s=Bazaar', false],
+  ['https://hentaiverse.org/?ss=ml&s=Bazaar', true],
   ['https://alt.hentaiverse.org/?s=Bazaar&ss=ar', false],
   ['https://alt.hentaiverse.org/?s=Bazaar&ss=ml&slot=139', false],
   ['http://hentaiverse.org/?s=Bazaar&ss=ml', false],
   ['https://hentaiverse.org/?s=Bazaar&ss=ml#planner', false],
+  ['https://hentaiverse.org/?s=Bazaar&ss=ml#planner/199', true],
 ];
 
 for (const [href, expected] of cases) {

@@ -1,16 +1,16 @@
 # HV Monster Manager（怪物管理器）
 
 作者：KirisameReiko  
-当前版本：0.3.3.0
+当前版本：0.3.5.0
 
 ## 用途与适用页面
 
-这是一个依赖 **HV Utils 4.2.4** 的 HentaiVerse Monster Lab 附属脚本，支持选择怪物、怪物重命名、精确 PL 规划与实时目标升级、水晶库存检查及采购。它直接使用 HV Utils 已生成的 Monster Lab 列表、侧栏、Monster Upgrader 等级／库存表格、主题变量和 `hvut_prices` 共享价格，不再提供独立侧栏或独立页面布局。脚本仅运行于以下两个精确地址：
+这是一个依赖 **HV Utils 4.2.4** 的 HentaiVerse Monster Lab 附属脚本，支持选择怪物、怪物重命名、24 项升级草案、精确 PL 与混沌升级、水晶库存检查及采购。它直接使用 HV Utils 已生成的 Monster Lab 列表、侧栏、主题变量和 `hvut_prices` 共享价格，不提供独立侧栏或独立页面布局。脚本仅运行于以下两个基础地址：
 
 - `https://hentaiverse.org/?s=Bazaar&ss=ml`
 - `https://alt.hentaiverse.org/?s=Bazaar&ss=ml`
 
-匹配采用完整 URL 白名单判断；两个域名上的 `ss=ar`、参数顺序变化、附加参数和 URL 片段均不会启动脚本。
+匹配采用参数集合白名单判断；允许参数顺序变化和可选的 `#planner/<正整数编号>` 深链接，两个域名上的 `ss=ar`、重复参数、其他附加参数及其他片段均不会启动脚本。
 
 ## 安装与权限
 
@@ -29,15 +29,16 @@
 
 1. 打开 Monster Lab；HV Utils 初始化完成后，“PL计划器”和“怪物重命名”会追加到其 `.hvut-ml-side` 侧栏中。
 2. 展开“选择怪物”，普通单击只选择当前项，Ctrl+单击添加或取消单项，Shift+单击按栏目当前显示顺序连续选择，Ctrl+Shift+单击把连续范围加入已有选择；列表获得焦点后可按 Ctrl+A 全选，单击列表空白处可清空。PL 计划器和怪物重命名共用同一份选择，页面刷新后仍保留已选编号。
-3. 在“PL计划器”设置目标 PL、“水晶市场价”和“水晶收购价”。页面加载时会自动恢复 PL 未改变怪物的等级缓存及最近一次市场快照，选择已缓存怪物即可直接计算；新怪物、PL 已变化或缓存损坏时才需要点击“刷新数据”。刷新时怪物当前等级与 12 种水晶库存会优先从 HV Utils Monster Upgrader 读取；若某行带有 HV Utils 保存的目标等级，则只对该怪物回退到 Hentaiverse 详情页校验，避免把旧目标当成实时状态。市场库存、现有订单、订单簿和价格仍按需实时刷新。
-4. 顶部同一行提供“刷新数据”、“直接买入水晶”、“挂水晶买单”和“升级选中怪物”四个按钮；选择“水晶收购价 → 自定义”会自动展开水晶栏目，此时可逐项输入每批收购价，刷新市场数据不会覆盖这些自定义值。
-5. 核对“水晶需求、库存与缺口”和“升级方案”后，再点击顶层“升级选中怪物”并确认实时方案；批量操作只处理“选择怪物”中实际选中的项目。
+3. 在“PL计划器”设置目标 PL 和价格来源。选中怪物后，脚本最多并发读取 5 只怪物的 12 项水晶属性、12 项混沌升级、水晶库存和混沌令牌；每行独立显示载入或错误状态。取消选择不会丢失本页草案，刷新页面后草案清除。
+4. 升级编辑器始终展开：桌面显示 24 项矩阵，900px 以下显示可同时展开多张的怪物卡。每格保留当前等级和目标等级；空值、非整数、低于当前值或超过项目上限都会原样标错并阻止计算、确认和执行，不会自动修正。
+5. “计算精确方案”只求解 6 项主要属性和 6 项元素减伤，12 项混沌升级保持当前值。手动改水晶属性时，该怪物投影 PL 必须精确等于目标；只改混沌时可忽略 PL 差异；同批可混合精确 PL 与仅混沌怪物，完全未修改的行会自动忽略。
+6. 资源区汇总 12 种水晶和混沌令牌，默认隐藏需求为 0 的项目，可展开全部 13 项。水晶可继续直接买入或挂买单；混沌令牌不可购买。执行前使用默认聚焦“取消”的双语对话框显示批次及资源摘要，并可展开逐怪明细。
 
-怪物等级和市场刷新结果以结构化 GM 对象保存在 `hv_monster_manager_cache_v1`，主域名和备用域名共用同一缓存。怪物记录包含名字、PL、更新时间和按 `STR、DEX、AGI、END、INT、WIS、FIRE、COLD、ELEC、WIND、HOLY、DARK` 排列的 12 项等级；只有当前 Monster Lab 列表 PL、缓存 PL 和等级计算 PL 三者一致时才会恢复，当前列表名字始终覆盖缓存旧名字。市场记录包含更新时间、库存／订单簿完整标志、物品编号、库存、批量大小、七种价格、当前买单和买卖订单簿；不设置硬性过期时间，但只用于显示和计算预览。
+怪物等级和市场刷新结果以结构化 GM 对象保存在 `hv_monster_manager_cache_v1`，主域名和备用域名共用同一缓存。怪物记录包含名字、PL、更新时间、12 项水晶等级和可选的 12 项混沌等级；旧缓存仍可读取。只有当前列表 PL、缓存 PL 和水晶等级计算 PL 三者一致时才会恢复，当前列表名字始终覆盖缓存旧名字。混沌令牌库存和升级草案不持久化。市场记录继续包含库存、批量、价格、订单和订单簿；`CACHE_VERSION` 仍为 1。
 
 缓存不会取代操作前的实时安全检查：升级前仍重新读取全部选中怪物并规划，购买前仍刷新市场，重命名前仍读取最新名单；成功刷新、升级响应、市场响应和重命名响应会立即同步缓存。PL 发生变化、缓存版本不兼容、字段损坏或怪物已不存在时，对应记录会自动失效或清理。
 
-“PL计划器”只包含“选择怪物”、“水晶需求、库存与缺口”、“升级方案”和“日志”，怪物项目显示 `#编号 名字 / PL 数值`，水晶栏目默认折叠（选择自定义收购价时自动展开）、日志默认展开；订单簿不能完整覆盖所需批数时，“完整预估消耗”会明确显示无法估算完整金额，只保留可见／所需批数，不再把局部花费显示成总价。“怪物重命名”面板按“选择怪物 → 重命名”排列，怪物项目只显示 `#编号 名字`，不显示 PL、缓存进度或日志栏目，只在重命名工具内显示当前操作状态。
+“PL计划器”由左侧怪物选择和右侧“计划设置 → 升级编辑器 → 资源 → 日志”组成；资源和日志均可折叠，缺口或错误会自动展开对应区域。订单簿不能完整覆盖所需批数时，只显示可见／所需批数，不把局部花费冒充总价。“怪物重命名”面板继续按“选择怪物 → 重命名”排列，选择状态与计划器共享。
 
 未安装 dokidoki 时，面板仍是 `#mainpane` 内的 `.hvut-ml-up` 子视图，默认宽度为 HV Utils 主面板的 100%。如需缩窄，可在用户样式或脚本 CSS 中设置：
 
@@ -45,11 +46,11 @@
 :root { --hvmm-panel-width: 900px; }
 ```
 
-安装 dokidoki 0.1.0.0 后，两个入口会随真实 `.hvut-ml-side` 进入顶部工具栏，管理器面板挂载到 `#dokidoki-addon-host` 并替换怪物列表工作区；关闭管理器或打开其他 HV Utils 工具会恢复列表。两种脚本加载顺序都会迁移同一面板节点，不重建语言、选择或计划状态；dokidoki 不可用时自动保留原布局。
+安装 dokidoki 0.2.1.0 后，两个入口会随真实 `.hvut-ml-side` 进入顶部工具栏；面板挂载到 `#dokidoki-addon-host` 并替换怪物列表工作区，颜色映射为纸面、深棕、琥珀和黄铜。关闭管理器或打开其他 HV Utils 工具会恢复列表。两种加载顺序都会迁移同一节点，不重建语言、选择或草案；dokidoki 不可用时保留原布局和主题回退。
 
-升级执行采用实时目标模式：每个 POST 最多升级 10 级，响应返回后立即解析实际属性等级和 12 种水晶库存，再重新计算所有怪物到目标 PL 的剩余方案。怪物已达到目标时不会继续执行旧增量；任一怪物高于目标、无法精确到达目标、响应没有进展或水晶不足时，整个批次立即停止。
+升级执行冻结当前显示顺序并逐怪处理，每只先水晶、后混沌；所有 POST 严格串行且每次最多 10 级。开始时强制重读全部有效怪物并校验整个剩余批次；精确模式每次响应后重新调用 `solveExact()`，自定义模式比较固定 24 项目标，不保留旧请求队列。解析失败、等级下降、越界、PL 超标、无进展、库存未知、资源不足、state-lock 或不可精确到达时立即停止整个批次。POST 超时、断网或结果不明时不会自动重试，只诊断 GET 一次并回写可确认状态，必须重新确认后才能继续。
 
-附属脚本所有请求起始时间统一遵守 HV Utils 4.2.4 的 300ms 间隔和最多 4 个并发读取策略。确认框只显示估算请求数，不再创建固定执行队列。实际升级、改名或水晶成交会使 HV Utils 当前页内的私有缓存过期，因此脚本会禁用该页的 Monster Upgrader 并显示“重新加载页面”；重新加载后 HV Utils 会重新同步最新状态。
+附属脚本请求起始时间继续遵守 300ms 间隔；混沌状态懒加载最多 5 个并发，POST 始终串行。实际升级、改名或水晶成交会使 HV Utils 当前页内的私有缓存过期，因此脚本会禁用该页的 Monster Upgrader 并显示“重新加载页面”；重新加载后 HV Utils 会重新同步最新状态。
 
 ## 怪物重命名
 
@@ -87,6 +88,7 @@
 - `test/hv_monster_manager_cache_test.js`
 - `test/hv_monster_manager_compaction_test.js`
 - `test/hv_monster_manager_slim_refactor_test.js`
+- `test/hv_monster_manager_v035_test.js`
 - `test/dokidoki_manager_compat_test.js`
 - `test/hv_monster_manager_all_test.js`
 - `test/_hv_monster_manager_browser_fixture_server.js`
@@ -104,6 +106,7 @@ node "test\hv_monster_manager_selection_test.js"
 node "test\hv_monster_manager_cache_test.js"
 node "test\hv_monster_manager_compaction_test.js"
 node "test\hv_monster_manager_slim_refactor_test.js"
+node "test\hv_monster_manager_v035_test.js"
 node "test\dokidoki_manager_compat_test.js"
 node "test\hv_monster_manager_all_test.js"
 node --check "HV Monster Manager.js"
@@ -112,9 +115,17 @@ node --check "test\_hv_monster_manager_browser_fixture_server.js"
 
 测试使用最小模拟响应或源码结构断言，不访问 Hentaiverse，也不消耗水晶。覆盖单次最多 10 级、响应后按实际状态重算、精确到达目标、超过目标停止、不可达停止、水晶库存解析、不完整响应拒绝、带编号三列 TXT 解析与导出模板、编号和当前名字交叉校验、随机名字去重、占用重试及服务器返回名字校验。`test/hv_monster_manager_selection_test.js` 单独校验普通点击、Ctrl 切换、Shift 可见顺序范围、Ctrl+Shift 追加、无锚点 Shift、Ctrl+A、空白清空、语义 ARIA 结构、旧按钮删除及两种重命名模式的选择过滤。
 
-`test/hv_monster_manager_cache_test.js` 独立校验结构化 GM 缓存的序列化／恢复、未知版本拒绝、页面 PL 与缓存 PL 不一致时失效、当前页面名字覆盖旧缓存、市场库存与订单簿完整性、计划器／重命名列表文案差异，以及刷新、升级、市场和改名成功路径写入缓存。`test/hv_monster_manager_hvutils_addon_test.js` 校验严格 HV Utils 依赖、Monster Lab 列表与 Upgrader 等级／库存解析、共享价格边界及实时目标策略；`test/dokidoki_manager_compat_test.js` 校验共享 DOM 契约、两种加载顺序所需监听、工作区切换、窄屏表格滚动和原存储键保持。`test/hv_monster_manager_layout_test.js` 校验双入口、面板功能隔离、栏目顺序与折叠、双面板语言同步和双语文件选择器；`test/hv_monster_manager_compaction_test.js` 与 `test/hv_monster_manager_slim_refactor_test.js` 继续约束配置驱动渲染和代码规模，`test/hv_monster_manager_all_test.js` 是完整测试入口。Chrome 夹具不发送真实 POST。`test/hv_monster_manager_v030_test.js` 的文件名为历史保留，当前预期输出为 `HV Monster Manager 0.3.3.0 tests passed.`。
+`test/hv_monster_manager_cache_test.js` 校验缓存兼容与可选混沌字段；`test/hv_monster_manager_v035_test.js` 校验 24 项配置、混沌令牌成本、严格草案分类、最多 10 级请求、5 并发读取和统一安全执行器；`test/dokidoki_manager_compat_test.js` 校验共享 DOM 契约与两种加载顺序。布局、选择、精简、市场与重命名回归测试仍由 `test/hv_monster_manager_all_test.js` 统一运行，Chrome 夹具不发送真实 POST。历史文件 `test/hv_monster_manager_v030_test.js` 当前输出为基线行为测试通过。
 
 ## 更新记录
+
+### 0.3.5.0
+
+将旧的固定升级展示替换为配置驱动的 24 项升级编辑器：6 项主要属性、6 项元素减伤和 12 项混沌升级共用桌面矩阵／移动卡片、严格输入和运行期草案。新增精确 PL、仅混沌与混合批次分类，汇总 12 种水晶和混沌令牌，并以默认聚焦取消的双语对话框统一确认。执行器按冻结顺序逐怪先水晶后混沌、每个 POST 最多 10 级，集中处理实时重算、资源、无进展、超目标、state-lock 和结果不明后的单次诊断；删除旧方案列表、HV Utils Upgrader 镜像读取和重复安全分支。与 dokidoki 0.2.1.0 组合或独立运行均保留原存储键，`CACHE_VERSION` 仍为 1；本版本只在本地完成，未发布。
+
+### 0.3.4.0
+
+适配 dokidoki 0.2.0.0 的羊皮纸语义变量，保留旧变量与独立 HV Utils 布局回退；PL 计划器和怪物重命名入口新增稳定工具分组属性，使生产工具栏和离线模拟宿主使用同一分组方式。升级、采购、缓存、选择、语言和重命名逻辑及既有存储键均未改变。
 
 ### 0.3.3.0
 

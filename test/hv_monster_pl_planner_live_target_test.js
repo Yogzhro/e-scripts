@@ -43,19 +43,19 @@ function loadFunction(name, dependencies) {
 
 const attributes = ['STR', 'DEX'];
 const queryByAttribute = { STR: 'pa_str', DEX: 'pa_dex' };
-const buildNextUpgradeRequest = loadFunction('buildNextUpgradeRequest', {
+const buildNextDraftRequest = loadFunction('buildNextDraftRequest', {
   all: attributes,
+  chaosKeys: [],
+  chaosByKey: {},
   upgradeQueryByAttr: queryByAttribute,
   encodeURIComponent,
 });
 
-const nextRequest = buildNextUpgradeRequest({
-  agg: {
-    STR: { k: 15 },
-    DEX: { k: 2 },
-  },
-}, '139');
+const nextRequest = buildNextDraftRequest({
+  slot: '139', current: { STR: 5, DEX: 5 }, target: { STR: 20, DEX: 7 },
+}, 'crystal');
 assert.deepEqual(nextRequest, {
+  resource: 'crystal',
   attr: 'STR',
   count: 10,
   slot: '139',
@@ -85,6 +85,8 @@ const rows = [
 ];
 const parseMonsterUpgradeSnapshot = loadFunction('parseMonsterUpgradeSnapshot', {
   all: attributes,
+  CHAOS_CONFIGS: [],
+  chaosKeys: [],
   $all: (selector, doc) => selector === '#monsterstats_top tr' ? doc.rows : [],
   parseNum: (value) => Number(String(value).replace(/[,+]/g, '')),
 });
@@ -97,17 +99,22 @@ assert.deepEqual(snapshot.stocks, { STR: 12345, DEX: 6789 });
 assert.equal(snapshot.inventoryComplete, true);
 assert.equal(snapshot.insufficientCrystals, true);
 
-const getLiveTargetState = loadFunction('getLiveTargetState', {
-  EPS: 1e-9,
-  totalPL: (levels) => levels.pl,
-  solveExact: (levels, target) => levels.unreachable
-    ? { ok: false, message: 'unreachable' }
-    : {
-        ok: true,
-        agg: { STR: { k: target - levels.pl }, DEX: { k: 0 } },
-      },
-  buildNextUpgradeRequest,
+const chaosCell = { textContent: 'Lvl 7', querySelector: () => null };
+const chaosSnapshotParser = loadFunction('parseMonsterUpgradeSnapshot', {
+  all: attributes,
+  CHAOS_CONFIGS: [{ key: 'Scavenging', query: 'affect' }],
+  chaosKeys: ['Scavenging'],
+  $all: (selector, doc) => selector === '#monsterstats_top tr' ? doc.rows
+    : selector === '.mcu2' ? [chaosCell] : [],
+  parseNum: (value) => Number(String(value).replace(/[,+]/g, '')),
 });
+const chaosSnapshot = chaosSnapshotParser({
+  rows,
+  querySelector: () => null,
+  body: { textContent: 'Upgrade Cost: 8 Chaos Tokens Stock: 1,234' },
+});
+assert.deepEqual(chaosSnapshot.chaos, { Scavenging: 7 });
+assert.equal(chaosSnapshot.chaosTokens, 1234);
 
 const solveExactAboveTarget = loadFunction('solveExact', {
   EPS: 1e-9,
@@ -121,31 +128,6 @@ assert.deepEqual(solveExactAboveTarget({ pl: 753 }, 750), {
   targetPL: 750,
   message: 'errorTargetBelowCurrent:753>750',
 });
-
-assert.equal(getLiveTargetState({ pl: 750 }, 750, '139').status, 'reached');
-assert.equal(getLiveTargetState({ pl: 753 }, 750, '139').status, 'above');
-assert.equal(getLiveTargetState({ pl: 749, unreachable: true }, 750, '139').status, 'unreachable');
-assert.deepEqual(getLiveTargetState({ pl: 735 }, 750, '139'), {
-  status: 'ready',
-  currentPL: 735,
-  plan: {
-    ok: true,
-    agg: { STR: { k: 15 }, DEX: { k: 0 } },
-  },
-  request: {
-    attr: 'STR',
-    count: 10,
-    slot: '139',
-    url: '?s=Bazaar&ss=ml&slot=139',
-    data: 'crystal_upgrade=pa_str&crystal_count=10',
-  },
-});
-
-const afterFirstResponse = getLiveTargetState({ pl: 745 }, 750, '139');
-assert.equal(afterFirstResponse.status, 'ready');
-assert.equal(afterFirstResponse.request.count, 5);
-assert.equal(getLiveTargetState({ pl: 750 }, 750, '139').status, 'reached');
-assert.equal(getLiveTargetState({ pl: 753 }, 750, '139').status, 'above');
 
 const incompleteSnapshot = parseMonsterUpgradeSnapshot({
   rows: rows.slice(0, 1),

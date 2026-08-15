@@ -9,7 +9,7 @@ const { execFileSync } = require('node:child_process');
 const workspace = path.resolve(__dirname, '..');
 const builderPath = path.join(workspace, 'resource', 'dokidoki', 'build-assets.js');
 assert(fs.existsSync(builderPath), 'missing portrait asset builder');
-const { RACE_KEYS, loadSharp, buildAssets, buildDevCopy } = require(builderPath);
+const { RACE_KEYS, loadSharp, buildAssets, buildDevCopy, buildPreviewPackage } = require(builderPath);
 
 function gitFiles() {
   return execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
@@ -66,6 +66,12 @@ function gitFiles() {
   assert(devSource.includes('data:image/webp;base64,'));
   assert(!devSource.includes('D:\\trans\\scripts'));
   assert(devSource.length > production.length);
+
+  const previewOutput = path.join(tempRoot, 'dokidoki-preview-v0.2.0.0.zip');
+  const previewPackage = await buildPreviewPackage(workspace, previewOutput);
+  assert.equal(previewPackage.output, previewOutput);
+  assert.equal(previewPackage.files.length, 16);
+  assert(fs.statSync(previewOutput).size > 0);
 
   const realRoot = path.join(workspace, 'resource', 'dokidoki');
   const realList = path.join(realRoot, 'source', 'list');

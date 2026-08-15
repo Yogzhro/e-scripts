@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         HV Monster Manager
 // @namespace    https://hentaiverse.org/
-// @version      0.3.3.0
-// @description  HV Utils 4.2.4 add-on for exact-target PL planning, crystal orders and monster renaming.
+// @version      0.3.5.0
+// @description  HV Utils 4.2.4 add-on for exact-target PL and chaos planning, crystal orders and monster renaming.
 // @author       KirisameReiko
 // @include      https://hentaiverse.org/?s=Bazaar&ss=ml
 // @include      https://alt.hentaiverse.org/?s=Bazaar&ss=ml
@@ -20,10 +20,17 @@
     'https://alt.hentaiverse.org/?s=Bazaar&ss=ml',
   ];
 
-  if (!MONSTER_LAB_URLS.includes(location.href)) return;
+  const currentUrl = new URL(location.href);
+  const validBase = MONSTER_LAB_URLS.some((href) => new URL(href).origin === currentUrl.origin)
+    && currentUrl.pathname === '/'
+    && [...currentUrl.searchParams.keys()].length === 2
+    && currentUrl.searchParams.get('s') === 'Bazaar'
+    && currentUrl.searchParams.get('ss') === 'ml';
+  if (!validBase
+    || (currentUrl.hash && !/^#planner\/[1-9]\d*$/.test(currentUrl.hash))) return;
 
   const HVUT_REQUIRED_VERSION = '4.2.4';
-  const ADDON_VERSION = '0.3.3.0';
+  const ADDON_VERSION = '0.3.5.0';
   const HVUT = Object.freeze({
     side: '.hvut-ml-side',
     upgraderButton: '#hvut-ml-up-button',
@@ -46,6 +53,7 @@
   const ELEMENTAL_COST_RATE = 1.26485522;
   const HVUT_REQUEST_INTERVAL_MS = 300;
   const HVUT_MAX_CONNECTIONS = 4;
+  const DRAFT_MAX_CONNECTIONS = 5;
   const DIRECT_BUY_RETRY_DELAY_MS = 5000;
   const DIRECT_BUY_MAX_RETRIES = 3;
   const RANDOM_RENAME_DIGITS = 6;
@@ -66,12 +74,37 @@
     ['HOLY', '圣', 'Crystal of Devotion', '神圣水晶', 'er_holy', 0],
     ['DARK', '暗', 'Crystal of Corruption', '暗黑水晶', 'er_dark', 0],
   ];
+  const CHAOS_CONFIGS = [
+    { key: 'Scavenging', zh: '拾荒', query: 'affect', max: 20 },
+    { key: 'Fortitude', zh: '坚韧', query: 'health', max: 20 },
+    { key: 'Brutality', zh: '残暴', query: 'damage', max: 20 },
+    { key: 'Accuracy', zh: '命中', query: 'accur', max: 20 },
+    { key: 'Precision', zh: '精准', query: 'cevbl', max: 20 },
+    { key: 'Overpower', zh: '压制', query: 'cpare', max: 20 },
+    { key: 'Interception', zh: '拦截', query: 'parry', max: 20 },
+    { key: 'Dissipation', zh: '消散', query: 'resist', max: 20 },
+    { key: 'Evasion', zh: '闪避', query: 'evade', max: 20 },
+    { key: 'Defense', zh: '防御', query: 'phymit', max: 20 },
+    { key: 'Warding', zh: '结界', query: 'magmit', max: 20 },
+    { key: 'Swiftness', zh: '迅捷', query: 'atkspd', max: 20 },
+  ];
   const primary = ATTRIBUTE_CONFIGS.filter((row) => row[5]).map((row) => row[0]);
   const elemental = ATTRIBUTE_CONFIGS.filter((row) => !row[5]).map((row) => row[0]);
   const all = [...primary, ...elemental];
   const displayElemental = ['WIND', 'ELEC', 'FIRE', 'COLD', 'DARK', 'HOLY'];
   const displayAll = [...primary, ...displayElemental];
   const primarySet = new Set(primary);
+  const chaosKeys = CHAOS_CONFIGS.map(({ key }) => key);
+  const chaosByKey = Object.fromEntries(CHAOS_CONFIGS.map((config) => [config.key, config]));
+  const UPGRADE_CONFIGS = [
+    ...ATTRIBUTE_CONFIGS.map(([key, zh, crystal, crystalZh, query, primaryAttr]) => ({
+      key, zh, crystal, crystalZh, query, group: primaryAttr ? 'primary' : 'elemental', max: primaryAttr ? 25 : 50,
+    })),
+    ...CHAOS_CONFIGS.map((config) => ({ ...config, group: 'chaos', resource: 'Chaos Token' })),
+  ];
+  const UPGRADE_GROUPS = [
+    ['primary', 'Primary Attributes', '主要属性'], ['elemental', 'Elemental Mitigation', '元素减伤'], ['chaos', 'Chaos Upgrades', '混沌升级'],
+  ];
   // Add new Easter eggs here, one string per line.
   const easterEggMessages = [
     'Isekaijoucho',
@@ -96,18 +129,17 @@
   const marketPriceSources = ['ask', 'bid', 'day', 'week', 'month', 'year'];
   const languageOptions = [['en', 'English'], ['zh-CN', '简体中文']];
   const TABLE_HEADER_KEYS = {
-    upgrade: ['tableAttr', 'tableCurrentLevel', 'tableTargetLevel', 'tableIncrease', 'tableCost'],
     crystal: ['tableCrystal', 'tableRequired', 'tableStock', 'tableShortage', 'tableEstimatedCost', 'tableOrderPrice'],
   };
   const PLANNER_ACTION_CONFIGS = [
-    ['refresh', 'hvmepp-refresh-data', 'buttonRefreshData', 'statusRefreshDataFailed'],
+    ['calculate', 'hvmepp-calculate-plan', 'buttonCalculatePlan', 'statusCalculationFailed'],
     ['direct', 'hvmepp-direct-buy', 'buttonDirectBuy', 'statusPurchaseFailed'],
     ['order', 'hvmepp-place-buy-orders', 'buttonPlaceBuyOrders', 'statusPurchaseFailed'],
     ['upgrade', 'hvmepp-run-upgrade', 'buttonRunUpgrade', 'statusUpgradeFailed'],
   ];
   const PLANNER_SECTION_CONFIGS = [
-    { id: 'hvmepp-crystal-section', headingKey: 'headingCrystalNeeds', className: 'hvmepp-crystal-card', contentId: 'hvmepp-crystal-result', openWhenCustom: true },
-    { id: 'hvmepp-upgrade-section', headingKey: 'headingUpgradePlan', className: 'hvmepp-upgrade-card', contentId: 'hvmepp-upgrade-result', collapsible: false },
+    { id: 'hvmepp-upgrade-section', headingKey: 'headingUpgradeEditor', className: 'hvmepp-upgrade-card', contentClass: 'hvmepp-upgrade-editor', collapsible: false },
+    { id: 'hvmepp-crystal-section', headingKey: 'headingUpgradeResources', className: 'hvmepp-crystal-card', contentId: 'hvmepp-crystal-result', openWhenCustom: true },
     { id: 'hvmepp-log-section', headingKey: 'headingLog', className: 'hvmepp-log-card', contentId: 'hvmepp-log-output', contentClass: 'hvmepp-log-output', childIds: ['hvmepp-log-summary', 'hvmepp-log-message'], open: true },
   ];
 
@@ -128,9 +160,9 @@
     labelLoadedCount: ["Cached", "已缓存"],
     headingMonsterSelection: ["Select Monsters", "选择怪物"],
     monsterSelectionHelp: ["Click: select one · Ctrl+click: toggle · Shift+click: range · Ctrl+A: select all · Click blank space: clear", "单击：单选 · Ctrl+单击：切换 · Shift+单击：连续选择 · Ctrl+A：全选 · 单击空白处：清空"],
-    headingCrystalNeeds: ["Crystal Requirements and Inventory", "水晶需求、库存与缺口"],
+    headingUpgradeResources: ["Upgrade Resources, Inventory and Shortage", "升级资源需求、库存与缺口"],
+    headingUpgradeEditor: ["Upgrade Editor", "升级编辑器"],
     headingMonsterRename: ["Rename", "重命名"],
-    headingUpgradePlan: ["Upgrade Plan", "升级方案"],
     headingLog: ["Log", "日志"],
     labelRenameMode: ["Rename Mode", "重命名模式"],
     labelRenameMappingFile: ["TXT Mapping File", "TXT 映射文件"],
@@ -154,8 +186,10 @@
     renameIssueSlotNotFound: [({ line, slot }) => `Line ${line}: monster #${slot} was not found.`, ({ line, slot }) => `第 ${line} 行：未找到怪物 #${slot}。`],
     renameIssueSourceMismatch: [({ line, slot, name, actual }) => `Line ${line}: monster #${slot} is currently "${actual}", not "${name}". Export a fresh template before renaming.`, ({ line, slot, name, actual }) => `第 ${line} 行：怪物 #${slot} 当前名称是“${actual}”，不是“${name}”；请重新导出最新模板后再改名。`],
     renameIssueAlreadyNamed: [({ line, name }) => `Line ${line}: "${name}" already has the requested name.`, ({ line, name }) => `第 ${line} 行：“${name}”已经是目标名称。`],
-    crystalPlanUnavailable: ["Crystal actions are unavailable until every selected monster has a valid plan. Review the monster errors below.", "全部选中怪物都得到有效方案后才能使用水晶功能"],
-    buttonRefreshData: ["Refresh Data", "刷新数据"],
+    buttonCalculatePlan: ["Calculate Exact Plan", "计算精确方案"],
+    buttonResetAll: ["Reset All", "全部重置"],
+    buttonEqualize: ["Equalize Upward", "向上拉平"],
+    buttonReviewUpgrade: ["Review Upgrade", "审核升级"],
     buttonReloadPage: ["Reload Page", "重新加载页面"],
     buttonDirectBuy: ["Direct Buy Crystals", "直接买入水晶"],
     buttonPlaceBuyOrders: ["Place Crystal Buy Orders", "挂水晶买单"],
@@ -167,25 +201,26 @@
     buttonBuying: [({ current, total }) => `Buying ${current}/${total}`, ({ current, total }) => `买入中 ${current}/${total}`],
     buttonPlacingOrders: [({ current, total }) => `Placing orders ${current}/${total}`, ({ current, total }) => `挂单中 ${current}/${total}`],
     totalCost: ["Total Cost:", "总成本："],
-    totalMonsters: ["Monsters:", "怪物数："],
-    noUpgradeNeeded: ["No upgrade needed", "无需升级"],
-    tableAttr: ["Attribute", "属性"],
-    tableCurrentLevel: ["Current Level", "当前等级"],
-    tableTargetLevel: ["Upgrade To", "需要提升到"],
-    tableIncrease: ["Increase", "提升"],
-    tableCost: ["Cost", "成本"],
+    tableName: ["Name", "名称"],
+    tableProjectedPL: ["Projected PL", "投影 PL"],
+    tableReset: ["Reset", "重置"],
     tableCrystal: ["Crystal", "水晶"],
     tableRequired: ["Required", "需要"],
     tableStock: ["Stock", "库存"],
     tableShortage: ["Shortage", "缺口"],
     tableEstimatedCost: ["Full Spend Estimate", "完整预估消耗"],
     tableOrderPrice: ["Buy Price / Batch", "收购价 / 每批"],
+    tableChaosTokens: ["Chaos Tokens", "混沌令牌"],
+    draftLoading: ["Loading chaos levels…", "正在读取混沌等级……"],
+    draftReady: ["Ready", "可编辑"],
+    draftInvalid: ["Invalid draft", "草案无效"],
+    draftChaosOnly: ["Chaos only", "仅混沌"],
+    draftExact: ["Exact PL", "精确 PL"],
+    draftUnchanged: ["Unchanged", "未修改"],
+    errorDraftInput: ["One or more upgrade targets are empty, non-integer, below the current level, or above the level cap.", "一个或多个升级目标为空、不是整数、低于当前等级或超过等级上限。"],
+    errorChaosLoad: ["Chaos levels or Chaos Token inventory could not be read for every selected monster.", "未能读取全部选中怪物的混沌等级或混沌令牌库存。"],
     stockUnknown: ["Not loaded", "未读取"],
     estimateUnavailable: ["Read order books first", "请先读取订单簿"],
-    estimateNoSellOrders: ["No visible sell orders", "当前没有可用卖单"],
-    estimatePartial: [({ available, needed }) => `Only ${available}/${needed} required batches are visible. Full spend unavailable.`, ({ available, needed }) => `仅显示所需 ${available}/${needed} 批卖单，无法估算完整消耗。`],
-    estimateSummary: [({ cost }) => `Order-book estimated spend: ${cost}. The direct-buy order uses the marginal ask needed to cover each crystal, while matches are charged at their actual ask prices.`, ({ cost }) => `订单簿预估消耗：${cost}，直接买入按覆盖每种水晶所需的边际卖价下单，实际成交仍按各档真实卖价扣款。`],
-    estimatePartialSummary: [({ available, needed }) => `Visible sell orders cover ${available}/${needed} required batches. Full spend unavailable; direct buy will refresh the order book before continuing.`, ({ available, needed }) => `当前卖单仅覆盖所需 ${available}/${needed} 批，无法估算完整消耗；直接买入会在继续前刷新订单簿。`],
     listSeparator: [", ", "，"],
     priceSource: {
       ask: ["Ask", "卖价"],
@@ -204,6 +239,11 @@
     errorCalculationPath: ["Calculation path error.", "计算路径异常。"],
     errorParseMonster: ["Could not parse attribute levels from the monster details page. Please confirm the page structure has not changed.", "未能从怪物详情页解析属性等级，请确认怪物详情页结构未变化。"],
     errorParseMonsterInventory: ["Could not confirm all 12 live crystal stocks from the monster response.", "未能从怪物响应页确认全部 12 种水晶的实时库存。"],
+    errorUpgradeNoProgress: [({ slot, attr }) => `Monster #${slot} made no progress on ${attr}; the entire batch was stopped.`, ({ slot, attr }) => `怪物 #${slot} 的 ${attr} 没有进展，整个批次已停止。`],
+    errorUpgradeAboveTarget: [({ slot, actual, target }) => `Monster #${slot} reached PL ${actual}, above target PL ${target}; the entire batch was stopped.`, ({ slot, actual, target }) => `怪物 #${slot} 实际 PL ${actual} 高于目标 PL ${target}，整个批次已停止。`],
+    errorUpgradeUnreachableLive: [({ slot, target }) => `Monster #${slot} can no longer reach target PL ${target} exactly from its live state.`, ({ slot, target }) => `怪物 #${slot} 从实时状态已无法精确达到目标 PL ${target}。`],
+    errorLiveCrystalShortage: [({ slot }) => `HentaiVerse reported insufficient crystals for monster #${slot}; the entire batch was stopped.`, ({ slot }) => `HentaiVerse 返回怪物 #${slot} 的水晶不足，整个批次已停止。`],
+    errorChaosTokenShortage: [({ slot }) => `HentaiVerse reported insufficient Chaos Tokens for monster #${slot}; the entire batch was stopped.`, ({ slot }) => `HentaiVerse 返回怪物 #${slot} 的混沌令牌不足，整个批次已停止。`],
     errorHttpRequest: [({ method, status, statusText, path }) => `${method} ${path} returned HTTP ${status}${statusText ? ` (${statusText})` : ''}. The current operation was stopped.`, ({ method, status, statusText, path }) => `${method} ${path} 返回 HTTP ${status}${statusText ? `（${statusText}）` : ''}，当前操作已停止。`],
     errorStateLock: ["HentaiVerse temporarily rejected the request because its state-lock limiter is active. Wait a moment, then retry; the script did not treat the request as successful.", "HentaiVerse 的状态锁限流器暂时拒绝了请求，请稍后重试"],
     errorNoMonsterSelection: ["Select at least one monster first.", "请先至少选择一个怪物。"],
@@ -215,7 +255,6 @@
     errorRenameUnexpected: [({ slot, expected, actual }) => `Monster #${slot} returned the unexpected name "${actual}" instead of "${expected}". Another tab may have renamed it; monster rename stopped.`, ({ slot, expected, actual }) => `怪物 #${slot} 返回了意外名称“${actual}”，而非“${expected}”；可能有其他标签页同时改名，怪物重命名已停止。`],
     errorRenameCandidate: [({ slot }) => `Could not generate a unique random candidate for monster #${slot}.`, ({ slot }) => `无法为怪物 #${slot} 生成未重复的随机名称。`],
     errorHvutRequired: [({ version }) => `HV Utils ${version} with "Advanced MonsterLab features" enabled is required. The add-on did not start because its Monster Lab host was not found.`, ({ version }) => `需要启用 HV Utils ${version} 的“Advanced MonsterLab features”。未找到其 Monster Lab 宿主，因此附属脚本没有启动。`],
-    errorMonstersNotLoaded: ["Some selected monsters have no live levels in this session. Refresh data first.", "本次会话中尚未读取部分选中怪物的实时等级，请先刷新数据。"],
     errorNoValidPlan: ["Calculate a valid multi-monster plan first.", "请先计算出有效的多怪物升级方案。"],
     errorMarketItemForm: [({ crystal }) => `Could not parse the buy order form for ${crystal}. The market page structure may have changed. No order was submitted.`, ({ crystal }) => `无法解析 ${crystal} 的买单表单，市场页面结构可能已变化`],
     errorCrystalBatch: [({ crystal }) => `Could not determine the live market batch size for ${crystal}. No order was submitted.`, ({ crystal }) => `无法从市场详情页确认 ${crystal} 的实际每批数量`],
@@ -228,11 +267,7 @@
     errorDirectBalance: [({ crystal, required, balance, batches, price }) => `${crystal}'s next order needs at least ${required} C of available Market Balance: ${batches} batch(es) @ the current marginal ask of ${price} C. Matches are charged at their actual ask prices, so the final spend may be lower. Current balance: ${balance} C. No order was submitted.`, ({ crystal, required, balance, batches, price }) => `${crystal} 的下一笔订单需要至少 ${required} C 市场余额：${batches} 批 × 当前覆盖范围的边际卖价 ${price} C，实际按各档真实卖价成交，最终花费可能更低，当前余额为 ${balance} C，本次没有提交订单。`],
     errorInvalidOrderPrice: [({ crystals }) => `Buy-order submission stopped: no valid per-batch price is available for ${crystals}. Read market data or enter a positive price first.`, ({ crystals }) => `挂买单已停止：${crystals} 没有有效的每批价格，请先读取市场数据，或手动填写正数价格。`],
     errorBuyOrderVerification: [({ crystal, submitted, remaining, expectedPrice, actualPrice }) => `${crystal}'s returned buy order does not match the request: submitted ${submitted} batch(es) @ ${expectedPrice} C, but the response shows ${remaining} batch(es) @ ${actualPrice} C. Processing stopped for review.`, ({ crystal, submitted, remaining, expectedPrice, actualPrice }) => `${crystal} 返回的买单与请求不一致：提交 ${submitted} 批、价格 ${expectedPrice} C/批，但响应显示 ${remaining} 批、价格 ${actualPrice} C/批，脚本已停止。`],
-    statusLoadingMonsters: [({ done, total }) => `Refreshing monster levels... ${done}/${total}`, ({ done, total }) => `正在刷新怪物等级... ${done}/${total}`],
-    statusReadingHvut: ["Reading current monster levels and crystal inventory from the HV Utils Monster Upgrader...", "正在从 HV Utils 的 Monster Upgrader 读取当前怪物等级和水晶库存……"],
-    statusHvutFallback: [({ slots }) => `HV Utils has saved target levels for monster(s) ${slots}; their current levels will be verified from Hentaiverse instead of treating the saved targets as live state.`, ({ slots }) => `HV Utils 为怪物 ${slots} 保存了目标等级；将改从 Hentaiverse 校验当前等级，避免把旧目标当成实时状态。`],
     statusHvutStale: ["Monster or inventory data changed. Reload the page before using HV Utils Monster Upgrader again.", "怪物或库存数据已经变化；再次使用 HV Utils Monster Upgrader 前请重新加载页面。"],
-    statusLoadedMonsters: [({ total }) => `Refreshed ${total} selected monster(s) for this session.`, ({ total }) => `本次会话已刷新 ${total} 个选中怪物的等级。`],
     statusRenameFileLoaded: [({ file, mappings, errors }) => `Loaded ${file}: ${mappings} valid mapping(s), ${errors} error(s).`, ({ file, mappings, errors }) => `已读取 ${file}：有效映射 ${mappings} 条，错误 ${errors} 条。`],
     statusRenameFileReadFailed: [({ message }) => `Could not read the TXT mapping file: ${message}`, ({ message }) => `读取 TXT 映射文件失败：${message}`],
     statusRenameExported: [({ total }) => `Exported ${total} monster name(s) as an editable numbered template.`, ({ total }) => `已导出 ${total} 个怪物名字，文件可直接作为带编号的改名模板。`],
@@ -249,23 +284,13 @@
     statusInventoryPartial: [({ failed }) => `The current operation stopped because inventory or live batch data could not be confirmed for: ${failed}.`, ({ failed }) => `无法确认以下所需水晶的库存或实时交易批量，本次操作已停止：${failed}。`],
     statusMarketPartial: [({ complete, failed }) => `Market data was only partially refreshed. Complete current price sets are available for ${complete}/12 crystals; incomplete live data: ${failed}. Existing session or HV Utils values were retained where possible.`, ({ complete, failed }) => `市场数据仅部分刷新成功，当前有完整价格数据的水晶为 ${complete}/12，实时数据不完整：${failed}；可用时保留本次会话或 HV Utils 的现有值。`],
     statusMarketComplete: [({ source }) => `Inventory, batch sizes, order books, and price histories were refreshed for all 12 crystals. Calculation price source: ${source}.`, ({ source }) => `12 种水晶的库存、交易批量、订单簿和历史价格均已刷新；当前计算价格来源：${source}。`],
-    statusRefreshDataComplete: [({ monsters }) => `Refresh complete: ${monsters} selected monster level set(s) and all crystal inventory, orders, and prices are current.`, ({ monsters }) => `刷新完成：已更新 ${monsters} 个选中怪物的等级，以及全部水晶库存、订单和价格。`],
-    statusRefreshDataPartial: [({ monsters, failed }) => `Refreshed ${monsters} selected monster level set(s), but crystal data is incomplete for: ${failed}.`, ({ monsters, failed }) => `已更新 ${monsters} 个选中怪物的等级，但以下水晶数据不完整：${failed}。`],
     statusNoUpgrade: ["No upgrade is needed.", "无需执行升级。"],
     statusNoShortage: ["The loaded inventory covers this plan; no crystals need to be bought.", "当前库存足够执行方案，无需买入水晶。"],
     statusCrystalShortage: [({ failed }) => `Upgrade stopped because crystal inventory is short: ${failed}.`, ({ failed }) => `已停止升级，水晶库存仍有缺口：${failed}。`],
     statusOrderPricesComplete: [({ source }) => `Buy order source changed to ${source} and current prices were applied; every row remains manually editable.`, ({ source }) => `收购价来源已改为 ${source}，并自动应用当前价格；每种水晶仍可手动调整。`],
     statusOrderPricesPartial: [({ source, updated, failed }) => `Buy order source changed to ${source}; applied ${updated}/12 current prices. Missing: ${failed}. Existing values were kept.`, ({ source, updated, failed }) => `收购价来源已改为 ${source}，已应用 ${updated}/12 项当前价格；缺少：${failed}，这些项目保留原值。`],
     statusCustomOrderPrices: ["Custom crystal buy prices enabled. Enter a price per batch in the expanded crystal section.", "已启用自定义水晶收购价，请在自动展开的水晶栏目中输入每批价格。"],
-    statusCheckingMonsters: [({ done, total }) => `Checking selected monsters... ${done}/${total}`, ({ done, total }) => `校验选中怪物... ${done}/${total}`],
-    statusLiveReplanning: [({ request, slot, current, target }) => `Live target request ${request}: monster #${slot}, PL ${current} → ${target}. Recalculating from the latest response after every request.`, ({ request, slot, current, target }) => `实时目标请求 ${request}：怪物 #${slot}，PL ${current} → ${target}；每次响应后都会按实际等级重算。`],
-    statusExecutingUpgrade: [({ request, slot, attr, count }) => `Executing live target request ${request}: monster #${slot}, ${attr} +${count}`, ({ request, slot, attr, count }) => `执行实时目标请求 ${request}：怪物 #${slot}，${attr} +${count}`],
-    statusMonsterTargetReached: [({ slot, target }) => `Monster #${slot} reached target PL ${target}.`, ({ slot, target }) => `怪物 #${slot} 已达到目标 PL ${target}。`],
     statusUpgradeComplete: [({ total, target, requests }) => `Batch upgrade complete: ${total} monster(s) reached target PL ${target} in ${requests} live request(s).`, ({ total, target, requests }) => `批量升级完成：${total} 个怪物均达到目标 PL ${target}，共执行 ${requests} 个实时请求。`],
-    statusUpgradeAboveTarget: [({ slot, current, target }) => `Batch stopped: monster #${slot} is at PL ${current}, above target PL ${target}. No further upgrade requests were sent.`, ({ slot, current, target }) => `批量已停止：怪物 #${slot} 当前 PL ${current}，高于目标 PL ${target}，未再发送后续升级请求。`],
-    statusUpgradeNoProgress: [({ slot, attr, count }) => `Batch stopped: monster #${slot} did not gain levels after ${attr} +${count}. No further upgrade requests were sent.`, ({ slot, attr, count }) => `批量已停止：怪物 #${slot} 执行 ${attr} +${count} 后等级没有增加，未再发送后续升级请求。`],
-    statusUpgradeUnreachable: [({ slot, current, target }) => `Batch stopped: monster #${slot} at PL ${current} can no longer reach target PL ${target} exactly.`, ({ slot, current, target }) => `批量已停止：怪物 #${slot} 当前 PL ${current} 已无法精确达到目标 PL ${target}。`],
-    statusCrystalResponseShortage: [({ slot, crystal }) => `Batch stopped: HentaiVerse reported insufficient ${crystal} for monster #${slot}. Live inventory and remaining requirements were refreshed.`, ({ slot, crystal }) => `批量已停止：HentaiVerse 返回怪物 #${slot} 的 ${crystal} 库存不足，已刷新实时库存与剩余需求。`],
     statusCheckingPurchase: ["Refreshing live inventory, batch sizes, sell orders, and existing buy orders before recalculating the crystal shortage...", "正在重新读取实时库存、交易批量、卖单和已有买单，并按最新库存重算水晶缺口..."],
     statusSubmittingDirectOrder: [({ current, total, crystal, batches, crystals, price }) => `Direct buy ${current}/${total}: submitting one ${crystal} order for ${batches} batch(es) (${crystals} crystals) @ the marginal visible ask of ${price} C per batch.`, ({ current, total, crystal, batches, crystals, price }) => `直接买入 ${current}/${total}：${crystal} 本轮只提交一笔订单，买入 ${batches} 批（${crystals} 个），报价为覆盖当前卖单所需的边际价 ${price} C/批。`],
     statusSubmittingBuyOrder: [({ current, total, crystal, batches, crystals, price }) => `Buy order ${current}/${total}: submitting ${batches} ${crystal} batch(es) (${crystals} crystals) @ the selected price of ${price} C per batch.`, ({ current, total, crystal, batches, crystals, price }) => `挂买单 ${current}/${total}：${crystal} 提交 ${batches} 批（${crystals} 个），使用选定价格 ${price} C/批。`],
@@ -276,11 +301,9 @@
     statusBuyOrdersComplete: [({ types, matched, pending }) => `Buy-order submission completed for ${types} crystal type(s): ${matched} had immediate matches and ${pending} still have a posted remainder.`, ({ types, matched, pending }) => `${types} 种水晶的买单已提交：${matched} 种发生即时成交，${pending} 种仍有挂单余量。`],
     statusSavedPriceSource: [({ source }) => `Using current ${source} prices for calculation.`, ({ source }) => `计算已改用当前 ${source} 价格。`],
     statusSavedPriceSourcePartial: [({ source, updated, failed }) => `Using current ${source} prices for calculation: ${updated}/12 applied. Missing: ${failed}. Existing calculation prices were kept for those items.`, ({ source, updated, failed }) => `计算已改用当前 ${source} 价格：已应用 ${updated}/12 项；缺少 ${failed}，这些项目保留原计算价格。`],
-    statusRefreshDataFailed: [({ message }) => `Data refresh stopped: ${message}`, ({ message }) => `刷新数据已停止：${message}`],
     statusUpgradeFailed: [({ message }) => `Upgrade failed: ${message}`, ({ message }) => `执行升级失败：${message}`],
     statusRenameFailed: [({ message }) => `Monster rename stopped: ${message}`, ({ message }) => `怪物重命名已停止：${message}`],
     statusPurchaseFailed: [({ message }) => `Crystal order processing stopped: ${message}`, ({ message }) => `水晶订单处理已停止：${message}`],
-    confirmUpgrade: [({ monsters, requests, levels, target }) => `The refreshed plan estimates ${requests} request(s) and ${levels} attribute level(s) for ${monsters} monster(s). Execution will recalculate after every response and stop unless every monster can reach target PL ${target} exactly. Continue?`, ({ monsters, requests, levels, target }) => `刷新后的方案预计对 ${monsters} 个怪物执行 ${requests} 个请求、提升 ${levels} 个属性等级。执行中每次响应后都会实时重算，任一怪物无法精确达到目标 PL ${target} 时立即停止。是否继续？`],
     confirmRename: [({ targets, issues, mode }) => `Rename ${targets} monster(s) using ${mode}. ${issues} mapping(s) will be skipped. Occupied TXT names are reported without changing them; occupied random names use a new suffix, up to ${RANDOM_RENAME_MAX_ATTEMPTS} attempts. Continue?`, ({ targets, issues, mode }) => `将使用“${mode}”重命名 ${targets} 个怪物，另有 ${issues} 条映射会跳过。TXT 目标被占用时只记录失败；随机名称被占用时会换后缀，最多尝试 ${RANDOM_RENAME_MAX_ATTEMPTS} 次。是否继续？`],
     monsterFallback: [({ slot }) => `Monster ${slot}`, ({ slot }) => `怪物 ${slot}`],
   };
@@ -412,86 +435,6 @@
         row,
       };
     }).filter(Boolean);
-  }
-
-  function parseHvutUpgradeRow(row) {
-    const cells = Array.from(row?.cells || []);
-    const levelIndexes = [8, 9, 10, 11, 12, 13, 16, 17, 18, 19, 20, 21];
-    if (cells.length < 22) return null;
-    if ([3, ...levelIndexes].some((index) => cells[index]?.classList?.contains('hvut-ml-up-change'))) {
-      return null;
-    }
-
-    const levels = normalizeMonsterLevels(Object.fromEntries(
-      all.map((attr, index) => [attr, parseNum(cells[levelIndexes[index]]?.textContent)])
-    ));
-    const slot = String(parseNum(cells[0]?.textContent));
-    if (!/^\d+$/.test(slot) || !levels) return null;
-
-    return {
-      slot,
-      name: String(cells[1]?.textContent || '').trim() || t('monsterFallback', { slot }),
-      className: String(cells[2]?.textContent || '').trim(),
-      pl: parseNum(cells[3]?.textContent),
-      levels,
-    };
-  }
-
-  function parseHvutCrystalStock(doc = document) {
-    const rows = $all(HVUT.crystalRows, doc);
-    if (rows.length !== all.length) return null;
-    const stocks = {};
-    rows.forEach((row, index) => {
-      const spans = Array.from(row.querySelectorAll('span'));
-      stocks[all[index]] = parseNum(spans.at(-1)?.textContent);
-    });
-    return all.every((attr) => Number.isFinite(stocks[attr]) && stocks[attr] >= 0)
-      ? stocks
-      : null;
-  }
-
-  async function readHvutUpgradeSnapshot(slots = []) {
-    const host = getHvutHost();
-    if (!host) throw new Error(t('errorHvutRequired', { version: HVUT_REQUIRED_VERSION }));
-    if (runtime.hvutStale) throw new Error(t('statusHvutStale'));
-
-    setStatus(t('statusReadingHvut'));
-    const addonPanel = $('#hvmepp-panel');
-    const restoreAddonPanel = Boolean(addonPanel && !addonPanel.classList.contains('hvut-none'));
-    if (restoreAddonPanel) addonPanel.classList.add('hvut-none');
-    let panel = document.querySelector(`${HVUT.upgraderPanel}:not(#hvmepp-panel)`);
-    const openedForRead = !panel || panel.classList.contains('hvut-none');
-    if (openedForRead) host.upgraderButton.click();
-
-    try {
-      const table = await waitForDom(
-        () => document.querySelector(HVUT.upgraderTable),
-        45000,
-        `HV Utils did not create ${HVUT.upgraderTable} within 45000ms.`
-      );
-      panel = table.closest(HVUT.upgraderPanel) || document.querySelector(`${HVUT.upgraderPanel}:not(#hvmepp-panel)`);
-      const wanted = new Set(slots.map(String));
-      const monsters = new Map();
-      const plannedSlots = [];
-
-      $all('tr', table).slice(1).forEach((row) => {
-        const slot = String(parseNum(row.cells[0]?.textContent));
-        if (wanted.size && !wanted.has(slot)) return;
-        const record = parseHvutUpgradeRow(row);
-        if (record) monsters.set(slot, record);
-        else if (/^\d+$/.test(slot)) plannedSlots.push(slot);
-      });
-
-      const stocks = parseHvutCrystalStock(panel || document);
-      if (stocks) applyMonsterStockSnapshot(stocks);
-      return { monsters, stocks, plannedSlots };
-    } finally {
-      panel = document.querySelector(`${HVUT.upgraderPanel}:not(#hvmepp-panel)`);
-      if (openedForRead && panel && !panel.classList.contains('hvut-none')) {
-        host.upgraderButton.click();
-      }
-      if (restoreAddonPanel) addonPanel.classList.remove('hvut-none');
-    }
   }
 
   function markHvutStateStale() {
@@ -764,21 +707,31 @@
 
   let hvutNextRequestAt = 0;
 
-  async function fetchText(url, data = null) {
+  async function fetchText(url, data = null, { timeout = 20000 } = {}) {
     const now = Date.now();
     const wait = Math.max(0, hvutNextRequestAt - now);
     hvutNextRequestAt = Math.max(now, hvutNextRequestAt) + HVUT_REQUEST_INTERVAL_MS;
     if (wait) await sleep(wait);
     const full = new URL(url, location.origin).href;
     const method = data ? 'POST' : 'GET';
-    const response = await fetch(full, {
-      method,
-      body: data || undefined,
-      credentials: 'same-origin',
-      headers: data ? { 'Content-Type': 'application/x-www-form-urlencoded' } : undefined,
-      redirect: 'follow', cache: 'no-store',
-    });
-    const text = await response.text();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    let response, text;
+    try {
+      response = await fetch(full, {
+        method,
+        body: data || undefined,
+        credentials: 'same-origin',
+        headers: data ? { 'Content-Type': 'application/x-www-form-urlencoded' } : undefined,
+        redirect: 'follow', cache: 'no-store', signal: controller.signal,
+      });
+      text = await response.text();
+    } catch (error) {
+      if (data && error instanceof Error) error.ambiguousPost = true;
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
     if (!response.ok) {
       const parsedUrl = new URL(full);
       throw new Error(t('errorHttpRequest', {
@@ -823,6 +776,11 @@
         pl: cachedPL,
         updatedAt: Math.max(0, Math.floor(Number(saved.updatedAt) || 0)),
         levels,
+        ...(Array.isArray(saved?.chaos) && saved.chaos.length === chaosKeys.length ? {
+          chaos: Object.fromEntries(chaosKeys.map((key, index) => [
+            key, Math.max(0, Math.min(20, parseInt(saved.chaos[index], 10) || 0)),
+          ])),
+        } : {}),
       });
     });
     return restored;
@@ -893,6 +851,7 @@
         pl: totalPL(levels),
         updatedAt: Math.max(0, Math.floor(Number(record.updatedAt) || Date.now())),
         levels: all.map((attr) => levels[attr]),
+        ...(record.chaos ? { chaos: chaosKeys.map((key) => record.chaos[key]) } : {}),
       }]);
     });
     return {
@@ -979,7 +938,10 @@
     calculationTimer: null,
     renameMappingText: '',
     renameMappingFileName: '',
+    drafts: new Map(), chaosTokens: null, loadingSlots: new Set(), draftMode: 'custom',
+    executionLogs: new Map(), resourceRowsExpanded: false, openDraftSlots: new Set(), draftMedia: null,
   };
+  document.documentElement.dataset.hvmmLanguage = state.language === 'zh-CN' ? 'zh' : 'en';
 
   function syncDokidokiHost() {
     const panel = $('#hvmepp-panel') || runtime.panelElement, dokidoki = getDokidokiHost();
@@ -1031,17 +993,11 @@
     return runtime.monsters;
   }
 
-  function isPrimary(a) {
-    return primarySet.has(a);
-  }
+  function isPrimary(a) { return primarySet.has(a); }
 
-  function maxLevel(a) {
-    return isPrimary(a) ? 25 : 50;
-  }
+  function maxLevel(a) { return isPrimary(a) ? 25 : 50; }
 
-  function primaryTotalPL(n) {
-    return n * (6 + (n - 1) * 0.5) / 2;
-  }
+  function primaryTotalPL(n) { return n * (6 + (n - 1) * 0.5) / 2; }
 
   function elementalTotalPL(n) {
     const t = Math.floor(n / 10);
@@ -1049,9 +1005,7 @@
     return (t + 1) * (t * 5 + r);
   }
 
-  function deltaPL(a, n) {
-    return isPrimary(a) ? 3 + n * 0.5 : Math.floor(1 + n * 0.1);
-  }
+  function deltaPL(a, n) { return isPrimary(a) ? 3 + n * 0.5 : Math.floor(1 + n * 0.1); }
 
   function crystalCost(a, n) {
     const primaryAttr = isPrimary(a);
@@ -1074,12 +1028,56 @@
     return pl;
   }
 
+  function chaosTokenCost(from, to) {
+    const start = Math.max(0, Math.floor(Number(from) || 0));
+    const end = Math.max(start, Math.floor(Number(to) || 0));
+    return end * (end + 1) / 2 - start * (start + 1) / 2;
+  }
+
+  function classifyUpgradeDraft(draft, targetPL) {
+    if (!draft || draft.status !== 'ready' || !draft.current || !draft.target) {
+      return { status: 'invalid', message: t('errorChaosLoad') };
+    }
+    const keys = [...all, ...chaosKeys];
+    const invalid = keys.some((key) => {
+      const current = Number(draft.current[key]);
+      const target = Number(draft.target[key]);
+      return !Number.isInteger(current) || !Number.isInteger(target) || target < current;
+    });
+    if (invalid) return { status: 'invalid', message: t('errorDraftInput') };
+    const crystalChanged = all.some((key) => draft.target[key] !== draft.current[key]);
+    const chaosChanged = chaosKeys.some((key) => draft.target[key] !== draft.current[key]);
+    if (!crystalChanged && !chaosChanged) return { status: 'none' };
+    if (!crystalChanged) return { status: 'chaos-only' };
+    const projection = totalPL(draft.target);
+    return Math.abs(projection - Number(targetPL)) <= EPS
+      ? { status: 'pl', projection }
+      : { status: 'invalid', projection, message: t('errorTargetUnreachable') };
+  }
+
+  function buildNextDraftRequest(draft, phase) {
+    const keys = phase === 'chaos' ? chaosKeys : all;
+    const attr = keys.find((key) => Number(draft.target[key]) > Number(draft.current[key]));
+    if (!attr) return null;
+    const count = Math.min(10, draft.target[attr] - draft.current[attr]);
+    const slot = String(draft.slot);
+    return phase === 'chaos'
+      ? {
+          resource: 'chaos', attr, count, slot,
+          url: `?s=Bazaar&ss=ml&slot=${encodeURIComponent(slot)}`,
+          data: `chaos_upgrade=${encodeURIComponent(chaosByKey[attr].query)}&chaos_count=${count}`,
+        }
+      : {
+          resource: 'crystal', attr, count, slot,
+          url: `?s=Bazaar&ss=ml&slot=${encodeURIComponent(slot)}`,
+          data: `crystal_upgrade=${encodeURIComponent(upgradeQueryByAttr[attr])}&crystal_count=${count}`,
+        };
+  }
+
   const maxPL = primary.length * primaryTotalPL(25) + elemental.length * elementalTotalPL(50);
 
   function formatPL(v) {
-    return Math.abs(v - Math.round(v)) < EPS
-      ? String(Math.round(v))
-      : v.toFixed(2).replace(/\.?0+$/, '');
+    return Math.abs(v - Math.round(v)) < EPS ? String(Math.round(v)) : v.toFixed(2).replace(/\.?0+$/, '');
   }
 
   function formatMoney(v) {
@@ -1280,32 +1278,51 @@
       const attr = all[index];
       const level = parseInt(row.querySelector('td:nth-child(2)')?.textContent, 10);
       if (attr && Number.isFinite(level)) levels[attr] = level;
-
       const hoverText = row.querySelector('[onmouseover]')?.getAttribute('onmouseover') || '';
       const stockMatch = /Stock:\s*([\d,]+)/i.exec(hoverText);
       const stock = stockMatch ? parseNum(stockMatch[1]) : NaN;
       if (attr && Number.isFinite(stock)) stocks[attr] = Math.max(0, Math.floor(stock));
     });
-
     const levelsComplete = all.every((attr) => Number.isFinite(levels[attr]));
     const inventoryComplete = all.every((attr) => Number.isFinite(stocks[attr]));
+    const chaos = {};
+    const chaosCells = $all('.mcu2', doc);
+    CHAOS_CONFIGS.forEach((config, index) => {
+      const input = doc.querySelector(`[name="chaos_upgrade"][value="${config.query}"]`);
+      const scope = input?.closest('tr, form, .mcr') || chaosCells[index];
+      const candidates = [
+        scope?.querySelector?.('.mcu2')?.textContent,
+        scope?.textContent,
+        chaosCells[index]?.textContent,
+      ];
+      const match = candidates.map((value) => /(?:Level|Lv\.?|等级)?\s*(\d{1,2})/i.exec(String(value || '')))
+        .find(Boolean);
+      if (match) chaos[config.key] = parseInt(match[1], 10);
+    });
+    const bodyText = String(doc.body?.textContent || '');
+    const resourceText = `${bodyText} ${$all('[onmouseover]', doc).map((node) => node.getAttribute('onmouseover') || '').join(' ')}`;
+    const tokenMatch = /Upgrade Cost:\s*[\d,]+\s+Chaos Tokens?\s+Stock:\s*([\d,]+)/i.exec(resourceText)
+      || /升级消耗[:：]\s*[\d,]+\s*混沌令牌\s+库存[:：]\s*([\d,]+)/.exec(resourceText)
+      || /Chaos\s+Tokens?\s*(?:x|:)?\s*([\d,]+)/i.exec(resourceText)
+      || /混沌令牌\s*(?:x|：|:)?\s*([\d,]+)/.exec(resourceText);
+    const chaosTokens = tokenMatch ? parseNum(tokenMatch[1]) : null;
     return {
       levels: levelsComplete ? levels : null,
       stocks,
       inventoryComplete,
-      insufficientCrystals: /Insufficient crystals/i.test(doc.body?.textContent || ''),
+      chaos: chaosKeys.every((key) => Number.isFinite(chaos[key])) ? chaos : null,
+      chaosTokens: Number.isFinite(chaosTokens) ? Math.max(0, Math.floor(chaosTokens)) : null,
+      insufficientCrystals: /Insufficient crystals/i.test(bodyText),
+      insufficientChaos: /Insufficient Chaos Tokens?/i.test(bodyText),
+      stateLock: /state lock limiter in effect/i.test(bodyText),
     };
   }
 
-  async function fetchMonsterLevels(slot) {
+  async function fetchMonsterSnapshot(slot) {
     const html = await fetchText(`?s=Bazaar&ss=ml&slot=${encodeURIComponent(slot)}`);
-    const levels = parseMonsterUpgradeSnapshot(htmlToDoc(html)).levels;
-
-    if (!levels) {
-      throw new Error(t('errorParseMonster'));
-    }
-
-    return levels;
+    const snapshot = parseMonsterUpgradeSnapshot(htmlToDoc(html));
+    if (!snapshot.levels) throw new Error(t('errorParseMonster'));
+    return snapshot;
   }
 
   function getMonsterMeta(slot) {
@@ -1327,6 +1344,7 @@
       pl: totalPL(levels),
       updatedAt: Date.now(),
       levels,
+      chaos: record.chaos || runtime.monsters.get(slot)?.chaos || null,
     };
     runtime.monsters.set(slot, cached);
     return cached;
@@ -1394,14 +1412,15 @@
       saveState();
       return;
     }
-    if (state.selectedMonsterSlots.length) scheduleCalculation();
+    saveState();
+    if (state.selectedMonsterSlots.length) loadSelectedDrafts();
     else calculate();
   }
 
   function scheduleCalculation(delay = 0) {
     clearTimeout(runtime.calculationTimer);
     runtime.lastPlan = null;
-    ['#hvmepp-crystal-result', '#hvmepp-upgrade-result'].forEach((selector) => {
+    ['#hvmepp-crystal-result', '#hvmepp-upgrade-section'].forEach((selector) => {
       const box = $(selector);
       if (box) box.setAttribute('aria-busy', 'true');
     });
@@ -1429,46 +1448,65 @@
     return results;
   }
 
-  async function loadSelectedMonsters() {
+  function draftFromSnapshot(slot, snapshot, previous = runtime.drafts.get(String(slot))) {
+    const record = runtime.monsters.get(String(slot));
+    const current = { ...snapshot.levels, ...snapshot.chaos };
+    const target = Object.fromEntries(UPGRADE_CONFIGS.map(({ key, max }) => {
+      const preserved = Number(previous?.target?.[key]);
+      const baseline = Number(current[key]);
+      return [key, Number.isInteger(preserved) && preserved >= baseline && preserved <= max ? preserved : baseline];
+    }));
+    return {
+      slot: String(slot),
+      name: record?.name || getMonsterMeta(slot).name,
+      status: snapshot.chaos ? 'ready' : 'error',
+      current,
+      target,
+      raw: Object.fromEntries(UPGRADE_CONFIGS.map(({ key }) => [key, String(target[key])])),
+      mode: previous?.mode || 'custom',
+      message: snapshot.chaos ? '' : t('errorChaosLoad'),
+    };
+  }
+
+  async function loadSelectedDrafts({ force = false } = {}) {
     const slots = state.selectedMonsterSlots.slice();
-    if (!slots.length) throw new Error(t('errorNoMonsterSelection'));
-
-    state.selectedMonsterSlots = slots;
-    let hvutSnapshot = { monsters: new Map(), stocks: null, plannedSlots: [] };
-    try {
-      hvutSnapshot = await readHvutUpgradeSnapshot(slots);
-    } catch (error) {
-      logWarning(
-        'hvutils.upgrader.read_failed',
-        'HV Utils Monster Upgrader data could not be read; selected monsters will be verified directly.',
-        { slots },
-        error
-      );
+    if (!slots.length) {
+      renderUpgradeEditor();
+      renderUpgradeResources(null);
+      return [];
     }
-    if (hvutSnapshot.plannedSlots.length) {
-      setStatus(t('statusHvutFallback', { slots: joinList(hvutSnapshot.plannedSlots.map((slot) => `#${slot}`)) }));
-    }
-
-    let done = 0;
-    const records = await mapLimit(slots, HVUT_MAX_CONNECTIONS, async (slot) => {
-      const hvutRecord = hvutSnapshot.monsters.get(String(slot));
-      const levels = hvutRecord?.levels || await fetchMonsterLevels(slot);
-      const meta = getMonsterMeta(slot);
-      const record = cacheMonsterRecord({
-        slot: String(slot),
-        name: hvutRecord?.name || meta.name,
-        levels,
-      });
-      done++;
-      setStatus(t('statusLoadingMonsters', { done, total: slots.length }));
-      syncMonsterSelection();
-      return record;
+    const items = slots.filter((slot) => force || runtime.drafts.get(String(slot))?.status !== 'ready');
+    await mapLimit(items, DRAFT_MAX_CONNECTIONS, async (slot) => {
+      const key = String(slot);
+      runtime.loadingSlots.add(key);
+      runtime.drafts.set(key, { ...(runtime.drafts.get(key) || {}), slot: key, status: 'loading' });
+      renderUpgradeEditor();
+      try {
+        const snapshot = await fetchMonsterSnapshot(key);
+        if (snapshot.chaosTokens !== null) runtime.chaosTokens = snapshot.chaosTokens;
+        else if (force) runtime.chaosTokens = null;
+        if (snapshot.inventoryComplete) applyMonsterStockSnapshot(snapshot.stocks);
+        else if (force) clearCrystalStockSnapshot();
+        cacheMonsterRecord({
+          slot: key,
+          name: getMonsterMeta(key).name,
+          levels: snapshot.levels,
+          chaos: snapshot.chaos,
+        });
+        runtime.drafts.set(key, draftFromSnapshot(key, snapshot));
+      } catch (error) {
+        runtime.drafts.set(key, {
+          ...(runtime.drafts.get(key) || {}), slot: key, status: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        runtime.loadingSlots.delete(key);
+        renderUpgradeEditor();
+      }
     });
-
     saveCache();
     calculate();
-    setStatus(t('statusLoadedMonsters', { total: records.length }));
-    return records;
+    return slots.map((slot) => runtime.drafts.get(String(slot)));
   }
 
   function parseMarketRows(doc, result) {
@@ -1741,13 +1779,7 @@
           runtime.marketData[crystal].hvut = value;
         });
       }
-      if (runtime.lastPlan?.results?.length) {
-        runtime.lastPlan = buildBatchPlan(runtime.lastPlan.results.map((result) => ({
-          slot: result.monsterSlot,
-          name: result.monsterName,
-          levels: result.startLevels,
-        })), Number(state.targetPL));
-      }
+      if (runtime.lastPlan) runtime.lastPlan = buildDraftPlan();
     }
     const snapshotMissing = crystalNames.filter((name) =>
       !Number.isFinite(data[name]?.stock)
@@ -1776,95 +1808,6 @@
         : t('statusMarketComplete', { source: priceSourceLabel(state.priceSource) }));
     }
     return runtime.marketData;
-  }
-
-  async function refreshAllData() {
-    const selected = state.selectedMonsterSlots;
-    const refreshedMonsters = selected.length
-      ? (await loadSelectedMonsters()).length
-      : 0;
-
-    await refreshMarketSnapshot({ silent: true });
-    setStatus(runtime.marketRefreshFailures.length
-      ? t('statusRefreshDataPartial', {
-        monsters: refreshedMonsters,
-        failed: joinList(runtime.marketRefreshFailures),
-      })
-      : t('statusRefreshDataComplete', { monsters: refreshedMonsters }));
-  }
-
-  function buildBatchPlan(monsters, target) {
-    const results = monsters.map((monster) => {
-      const levels = Object.assign({}, monster.levels);
-      const result = solveExact(levels, target);
-      return Object.assign(result, {
-        startLevels: levels,
-        monsterSlot: String(monster.slot),
-        monsterName: monster.name || t('monsterFallback', { slot: monster.slot }),
-      });
-    });
-
-    const requirements = Object.fromEntries(all.map((attr) => [attr, 0]));
-    let totalCost = 0;
-    results.forEach((result) => {
-      if (!result.ok) return;
-      totalCost += result.totalCost;
-      all.forEach((attr) => {
-        requirements[attr] += Number(result.agg[attr].crystals) || 0;
-      });
-    });
-
-    return {
-      ok: results.length > 0 && results.every((result) => result.ok),
-      targetPL: target,
-      results,
-      requirements,
-      totalCost,
-      monsterCount: results.length,
-    };
-  }
-
-  function estimateLiveRequests(plan) {
-    let requests = 0;
-    let levels = 0;
-    plan.results.forEach((result) => {
-      all.forEach((attr) => {
-        const count = Math.max(0, Math.floor(Number(result.agg[attr].k) || 0));
-        levels += count;
-        requests += Math.ceil(count / 10);
-      });
-    });
-    return { requests, levels };
-  }
-
-  function buildNextUpgradeRequest(result, slot) {
-    for (const attr of all) {
-      const count = Math.max(0, Math.floor(Number(result?.agg?.[attr]?.k) || 0));
-      if (!count) continue;
-
-      const step = Math.min(10, count);
-      return {
-        attr,
-        count: step,
-        slot: String(slot),
-        url: `?s=Bazaar&ss=ml&slot=${encodeURIComponent(slot)}`,
-        data: `crystal_upgrade=${encodeURIComponent(upgradeQueryByAttr[attr])}&crystal_count=${step}`,
-      };
-    }
-    return null;
-  }
-
-  function getLiveTargetState(levels, target, slot) {
-    const currentPL = totalPL(levels);
-    if (currentPL > target + EPS) return { status: 'above', currentPL };
-    if (Math.abs(currentPL - target) <= EPS) return { status: 'reached', currentPL };
-
-    const plan = solveExact(levels, target);
-    if (!plan.ok) return { status: 'unreachable', currentPL, plan };
-
-    const request = buildNextUpgradeRequest(plan, slot);
-    if (!request) return { status: 'unreachable', currentPL, plan };
-    return { status: 'ready', currentPL, plan, request };
   }
 
   function applyMonsterStockSnapshot(stocks) {
@@ -1931,21 +1874,6 @@
     };
   }
 
-  function getPurchaseEstimateSummary(rows) {
-    let estimatedCost = 0;
-    let coveredBatches = 0;
-    let totalBatches = 0;
-    const shortages = rows.filter((row) => row.shortage > 0 && row.batches > 0);
-    if (!shortages.length || shortages.some((row) => !row.orderBookLoaded)) return null;
-
-    shortages.forEach((row) => {
-      estimatedCost += row.orderBookEstimate?.estimatedCost || 0;
-      coveredBatches += row.orderBookEstimate?.coveredBatches || 0;
-      totalBatches += row.batches;
-    });
-    return { estimatedCost, coveredBatches, totalBatches, complete: coveredBatches === totalBatches };
-  }
-
   function getCrystalPlanRows(plan) {
     return displayAll.map((attr) => {
       const crystal = crystalByAttr[attr];
@@ -2006,27 +1934,6 @@
       key: 'statusCrystalShortage',
       params: { failed: joinList(shortages.map((row) => `${row.label} ${row.shortage.toLocaleString()}`)) },
     } : null;
-  }
-
-  function getTargetFailureIssue(status, slot, currentPL, target) {
-    return {
-      key: status === 'above' ? 'statusUpgradeAboveTarget' : 'statusUpgradeUnreachable',
-      params: { slot, current: formatPL(currentPL), target: formatPL(target) },
-    };
-  }
-
-  function getUpgradeResponseIssue({
-    snapshot, previousPL, updatedPL, target, planOk, inventoryIssue, slot, request,
-  }) {
-    if (snapshot.insufficientCrystals) {
-      return { key: 'statusCrystalResponseShortage', params: { slot, crystal: crystalLabel(request.attr) } };
-    }
-    if (updatedPL <= previousPL + EPS) {
-      return { key: 'statusUpgradeNoProgress', params: { slot, attr: attrLabel(request.attr), count: request.count } };
-    }
-    if (updatedPL > target + EPS) return getTargetFailureIssue('above', slot, updatedPL, target);
-    if (!planOk) return getTargetFailureIssue('unreachable', slot, updatedPL, target);
-    return inventoryIssue;
   }
 
   function sleep(ms) {
@@ -2626,205 +2533,245 @@
     }
   }
 
-  async function executeBatchUpgradePlan(plan, button) {
-    if (!plan?.ok) {
-      setStatus(t('errorNoValidPlan'));
-      return;
+  function remainingResourceIssue(plan) {
+    const crystalIssue = getCrystalPlanIssue(getCrystalPlanRows(plan));
+    if (crystalIssue) return t(crystalIssue.key, crystalIssue.params);
+    if (plan.chaosTokens > 0 && runtime.chaosTokens === null) return t('errorChaosLoad');
+    if (plan.chaosTokens > Number(runtime.chaosTokens || 0)) {
+      return state.language === 'zh-CN'
+        ? `混沌令牌不足：需要 ${plan.chaosTokens}，库存 ${runtime.chaosTokens}。`
+        : `Insufficient Chaos Tokens: ${plan.chaosTokens} required, ${runtime.chaosTokens} in stock.`;
     }
+    return '';
+  }
 
-    let checked = 0;
-    const currentRecords = await mapLimit(plan.results, HVUT_MAX_CONNECTIONS, async (result) => {
-      const levels = await fetchMonsterLevels(result.monsterSlot);
-      checked++;
-      setStatus(t('statusCheckingMonsters', { done: checked, total: plan.results.length }));
-      const record = {
-        slot: result.monsterSlot,
-        name: result.monsterName,
-        levels,
-      };
-      return cacheMonsterRecord(record);
-    });
-    saveCache();
-
-    const target = Number(plan.targetPL);
-    let livePlan = buildBatchPlan(currentRecords, target);
-    runtime.lastPlan = livePlan;
-    renderPlan(livePlan);
-    if (!livePlan.ok) {
-      const invalidIndex = currentRecords.findIndex((record) => {
-        const status = getLiveTargetState(record.levels, target, record.slot).status;
-        return status !== 'reached' && status !== 'ready';
+  function confirmUpgradeDialog(plan) {
+    return new Promise((resolve) => {
+      const crystalTotal = all.reduce((sum, attr) => sum + Number(plan.requirements[attr] || 0), 0);
+      const dialog = elt('dialog', { class: 'hvmepp-confirm-dialog', ariaLabel: t('buttonReviewUpgrade') });
+      const cancel = elt('button', {
+        type: 'button', text: state.language === 'zh-CN' ? '取消' : 'Cancel', autofocus: true,
       });
-      const invalidRecord = currentRecords[Math.max(0, invalidIndex)];
-      const invalidState = getLiveTargetState(invalidRecord.levels, target, invalidRecord.slot);
-      const issue = getTargetFailureIssue(
-        invalidState.status,
-        invalidRecord.slot,
-        invalidState.currentPL,
-        target
+      const execute = elt('button', {
+        type: 'button', text: t('buttonRunUpgrade'), class: 'hvmepp-confirm-execute',
+      });
+      dialog.append(
+        elt('h2', { text: t('buttonReviewUpgrade') }),
+        elt('p', { text: state.language === 'zh-CN'
+          ? `${plan.monsterCount} 只怪物；水晶 ${crystalTotal.toLocaleString()}，混沌令牌 ${plan.chaosTokens.toLocaleString()}；每次响应后重新核对。`
+          : `${plan.monsterCount} monster(s); ${crystalTotal.toLocaleString()} crystals and ${plan.chaosTokens.toLocaleString()} Chaos Tokens; rechecked after every response.` }),
+        elt('details', {}, [
+          elt('summary', { text: state.language === 'zh-CN' ? '完整逐怪明细' : 'Full monster details' }),
+          elt('ul', {}, plan.active.map(({ draft, classification }) => elt('li', {
+            text: `#${draft.slot} ${draft.name}: ${draftStatusLabel(classification.status)} · PL ${formatPL(totalPL(draft.current))} → ${formatPL(totalPL(draft.target))}`,
+          }))),
+        ]),
+        elt('div', { class: 'hvmepp-confirm-actions' }, [cancel, execute])
       );
-      setStatus(t(issue.key, issue.params));
-      return;
-    }
+      let done = false;
+      const finish = (accepted) => {
+        if (done) return;
+        done = true;
+        dialog.remove();
+        resolve(accepted);
+      };
+      cancel.addEventListener('click', () => finish(false));
+      execute.addEventListener('click', () => finish(true));
+      dialog.addEventListener('cancel', (event) => {
+        event.preventDefault();
+        finish(false);
+      }, { once: true });
+      document.body.appendChild(dialog);
+      if (typeof dialog.showModal === 'function') {
+        dialog.showModal();
+        queueMicrotask(() => cancel.focus());
+      } else finish(confirm(t('buttonRunUpgrade')));
+    });
+  }
 
-    await refreshMarketSnapshot({ silent: true, rerender: false, applySavedSources: false });
-    let crystalRows = getCrystalPlanRows(livePlan);
-    renderPlan(livePlan, crystalRows);
-    const initialCrystalIssue = getCrystalPlanIssue(crystalRows);
-    if (initialCrystalIssue) {
-      setStatus(t(initialCrystalIssue.key, initialCrystalIssue.params));
-      return;
-    }
+  function applyLiveDraftSnapshot(draft, snapshot) {
+    const previousTarget = { ...draft.target };
+    const current = { ...snapshot.levels, ...snapshot.chaos };
+    draft.current = current;
+    draft.target = Object.fromEntries(UPGRADE_CONFIGS.map(({ key, max }) => [
+      key, Math.max(current[key], Math.min(max, Number(previousTarget[key]))),
+    ]));
+    draft.raw = Object.fromEntries(UPGRADE_CONFIGS.map(({ key }) => [key, String(draft.target[key])]));
+    draft.invalid = {};
+    draft.status = 'ready';
+    if (snapshot.inventoryComplete) applyMonsterStockSnapshot(snapshot.stocks);
+    else clearCrystalStockSnapshot();
+    runtime.chaosTokens = snapshot.chaosTokens;
+    cacheMonsterRecord({
+      slot: draft.slot, name: draft.name, levels: snapshot.levels, chaos: snapshot.chaos,
+    });
+  }
 
-    const estimate = estimateLiveRequests(livePlan);
-    if (!estimate.requests) {
+  async function diagnoseAmbiguousPost(draft, originalError) {
+    try {
+      const snapshot = await fetchMonsterSnapshot(draft.slot);
+      if (!snapshot.chaos) throw new Error(t('errorChaosLoad'));
+      applyLiveDraftSnapshot(draft, snapshot);
+      saveCache();
+      return {
+        known: true,
+        message: state.language === 'zh-CN'
+          ? `请求结果不明；已诊断读取怪物 #${draft.slot} 的最新状态，未自动续跑。`
+          : `The POST result was ambiguous. Monster #${draft.slot} was diagnosed and updated; execution was not resumed.`,
+      };
+    } catch (diagnosticError) {
+      return {
+        known: false,
+        message: state.language === 'zh-CN'
+          ? `请求结果不明，且诊断读取失败；怪物 #${draft.slot} 状态未知。`
+          : `The POST result was ambiguous and diagnosis failed; monster #${draft.slot} is in an unknown state.`,
+        error: diagnosticError,
+        originalError,
+      };
+    }
+  }
+
+  function appendExecutionLog(slot, summary, technical = '') {
+    runtime.executionLogs.set(String(slot), { summary, technical });
+    const log = $('#hvmepp-log-output');
+    if (!log) return;
+    const fragment = document.createDocumentFragment();
+    runtime.executionLogs.forEach((entry, key) => fragment.appendChild(elt('details', {
+      open: Boolean(entry.technical),
+    }, [
+      elt('summary', { text: `#${key} ${entry.summary}` }),
+      ...(entry.technical ? [elt('pre', { text: entry.technical })] : []),
+    ])));
+    log.replaceChildren(fragment);
+  }
+
+  async function executeBatchUpgradePlan(plan, button) {
+    if (!plan?.ok) throw new Error(plan?.message || t('errorNoValidPlan'));
+    const selectedOrder = new Set(plan.active.map(({ monsterSlot }) => String(monsterSlot)));
+    const frozenSlots = runtime.monsterList.map(({ index }) => String(index))
+      .filter((slot) => selectedOrder.has(slot));
+    if (!frozenSlots.length) {
       setStatus(t('statusNoUpgrade'));
       return;
     }
 
-    if (!confirm(t('confirmUpgrade', {
-      monsters: livePlan.monsterCount,
-      requests: estimate.requests,
-      levels: estimate.levels,
-      target: formatPL(target),
-    }))) return;
+    setStatus(state.language === 'zh-CN' ? '正在强制重读全部有效怪物……' : 'Force-reading every valid monster…');
+    await loadSelectedDrafts({ force: true });
+    for (const slot of frozenSlots) {
+      const draft = runtime.drafts.get(slot);
+      if (draft?.mode !== 'exact') continue;
+      const solved = solveExact(draft.current, Number(state.targetPL));
+      if (!solved.ok) throw new Error(t('errorUpgradeUnreachableLive', { slot, target: formatPL(state.targetPL) }));
+      all.forEach((key) => { draft.target[key] = solved.finalLevels[key]; });
+      chaosKeys.forEach((key) => { draft.target[key] = draft.current[key]; });
+      UPGRADE_CONFIGS.forEach(({ key }) => { draft.raw[key] = String(draft.target[key]); });
+    }
+    plan = calculate();
+    if (!plan.ok) throw new Error(plan.message || t('errorNoValidPlan'));
+    const preflightIssue = remainingResourceIssue(plan);
+    if (preflightIssue) throw new Error(preflightIssue);
+    if (!await confirmUpgradeDialog(plan)) return;
 
     let requestCount = 0;
-    let stopMessage = '';
-
-    upgradeLoop:
-    for (let monsterIndex = 0; monsterIndex < currentRecords.length; monsterIndex++) {
-      while (true) {
-        const record = currentRecords[monsterIndex];
-        const liveState = getLiveTargetState(record.levels, target, record.slot);
-        if (liveState.status === 'reached') {
-          setStatus(t('statusMonsterTargetReached', {
-            slot: record.slot,
-            target: formatPL(target),
-          }));
-          break;
+    try {
+      for (const slot of frozenSlots) {
+        const draft = runtime.drafts.get(slot);
+        if (!draft || draft.status !== 'ready') throw new Error(t('errorChaosLoad'));
+        for (const phase of ['crystal', 'chaos']) {
+          while (true) {
+            plan = buildDraftPlan();
+            const resourceIssue = remainingResourceIssue(plan);
+            if (resourceIssue) throw new Error(resourceIssue);
+            const request = buildNextDraftRequest(draft, phase);
+            if (!request) break;
+            const before = { ...draft.current };
+            const remainingRequests = plan.active.reduce((count, { draft: row }) =>
+              count + [...all, ...chaosKeys].reduce((sum, key) =>
+                sum + Math.ceil(Math.max(0, row.target[key] - row.current[key]) / 10), 0), 0);
+            button.textContent = t('buttonRunningUpgrade', {
+              current: ++requestCount,
+              total: Math.max(requestCount, requestCount + remainingRequests - 1),
+            });
+            setStatus(`#${slot} · ${request.attr} +${request.count}`);
+            let html;
+            try {
+              html = await fetchText(request.url, request.data);
+            } catch (error) {
+              if (error?.ambiguousPost) {
+                const diagnosis = await diagnoseAmbiguousPost(draft, error);
+                appendExecutionLog(slot, diagnosis.message, diagnosis.known ? '' : String(diagnosis.error || error));
+                throw new Error(diagnosis.message);
+              }
+              throw error;
+            }
+            markHvutStateStale();
+            const snapshot = parseMonsterUpgradeSnapshot(htmlToDoc(html));
+            if (snapshot.stateLock) throw new Error(t('errorStateLock'));
+            if (snapshot.insufficientCrystals) throw new Error(t('errorLiveCrystalShortage', { slot }));
+            if (snapshot.insufficientChaos) throw new Error(t('errorChaosTokenShortage', { slot }));
+            if (!snapshot.levels || !snapshot.chaos) throw new Error(t('errorParseMonster'));
+            const next = { ...snapshot.levels, ...snapshot.chaos };
+            const decreased = [...all, ...chaosKeys].find((key) => next[key] < before[key]);
+            if (decreased) throw new Error(`#${slot} ${decreased}: returned level decreased.`);
+            const outOfRange = UPGRADE_CONFIGS.find(({ key, max }) => !Number.isInteger(next[key]) || next[key] < 0 || next[key] > max);
+            if (outOfRange) throw new Error(`#${slot} ${outOfRange.key}: returned level is outside 0–${outOfRange.max}.`);
+            if (next[request.attr] <= before[request.attr]) {
+              throw new Error(t('errorUpgradeNoProgress', {
+                slot,
+                attr: request.resource === 'chaos' ? request.attr : attrLabel(request.attr),
+              }));
+            }
+            const overshot = [...all, ...chaosKeys].find((key) => next[key] > draft.target[key]);
+            applyLiveDraftSnapshot(draft, snapshot);
+            if (overshot && draft.mode !== 'exact') {
+              throw new Error(`#${slot} ${overshot}: actual level exceeded the fixed target.`);
+            }
+            if (!snapshot.inventoryComplete) {
+              await refreshMarketSnapshot({ silent: true, rerender: false, applySavedSources: false });
+              if (!hasCompleteCrystalStock()) throw new Error(t('errorParseMonsterInventory'));
+            }
+            if (draft.mode === 'exact' && phase === 'crystal') {
+              const currentPL = totalPL(draft.current);
+              if (currentPL > Number(state.targetPL) + EPS) {
+                throw new Error(t('errorUpgradeAboveTarget', {
+                  slot, actual: formatPL(currentPL), target: formatPL(state.targetPL),
+                }));
+              }
+              if (currentPL < Number(state.targetPL) - EPS) {
+                const solved = solveExact(draft.current, Number(state.targetPL));
+                if (!solved.ok) {
+                  throw new Error(t('errorUpgradeUnreachableLive', { slot, target: formatPL(state.targetPL) }));
+                }
+                all.forEach((key) => {
+                  draft.target[key] = solved.finalLevels[key];
+                  draft.raw[key] = String(draft.target[key]);
+                });
+              } else {
+                all.forEach((key) => {
+                  draft.target[key] = draft.current[key];
+                  draft.raw[key] = String(draft.current[key]);
+                });
+              }
+            }
+            saveCache();
+            renderPlan(buildDraftPlan());
+          }
         }
-        if (liveState.status !== 'ready') {
-          const issue = getTargetFailureIssue(
-            liveState.status,
-            record.slot,
-            liveState.currentPL,
-            target
-          );
-          stopMessage = t(issue.key, issue.params);
-          break upgradeLoop;
+        if (classifyUpgradeDraft(draft, Number(state.targetPL)).status !== 'none') {
+          throw new Error(`#${slot}: final state does not match the draft target.`);
         }
-
-        requestCount++;
-        const request = liveState.request;
-        button.textContent = t('buttonRunningUpgrade', {
-          current: requestCount,
-          total: Math.max(requestCount, estimate.requests),
-        });
-        setStatus(t('statusExecutingUpgrade', {
-          request: requestCount,
-          slot: request.slot,
-          attr: attrLabel(request.attr),
-          count: request.count,
-        }));
-
-        const html = await fetchText(request.url, request.data);
-        markHvutStateStale();
-        const snapshot = parseMonsterUpgradeSnapshot(htmlToDoc(html));
-        if (!snapshot.levels) throw new Error(t('errorParseMonster'));
-
-        const updatedRecord = cacheMonsterRecord({
-          slot: record.slot,
-          name: record.name,
-          levels: snapshot.levels,
-        });
-        currentRecords[monsterIndex] = updatedRecord;
-
-        if (snapshot.inventoryComplete) {
-          applyMonsterStockSnapshot(snapshot.stocks);
-        } else {
-          clearCrystalStockSnapshot();
-          await refreshMarketSnapshot({ silent: true, rerender: false, applySavedSources: false });
-          if (!hasCompleteCrystalStock()) throw new Error(t('errorParseMonsterInventory'));
-        }
-        saveCache();
-
-        const updatedPL = totalPL(updatedRecord.levels);
-        livePlan = buildBatchPlan(currentRecords, target);
-        crystalRows = getCrystalPlanRows(livePlan);
-        const responseIssue = getUpgradeResponseIssue({
-          snapshot,
-          previousPL: liveState.currentPL,
-          updatedPL,
-          target,
-          planOk: livePlan.ok,
-          inventoryIssue: getCrystalPlanIssue(crystalRows),
-          slot: record.slot,
-          request,
-        });
-        if (responseIssue) {
-          stopMessage = t(responseIssue.key, responseIssue.params);
-          break upgradeLoop;
-        }
-
-        const nextState = getLiveTargetState(updatedRecord.levels, target, updatedRecord.slot);
-        setStatus(nextState.status === 'reached'
-          ? t('statusMonsterTargetReached', {
-              slot: updatedRecord.slot,
-              target: formatPL(target),
-            })
-          : t('statusLiveReplanning', {
-              request: requestCount,
-              slot: updatedRecord.slot,
-              current: formatPL(updatedPL),
-              target: formatPL(target),
-            }));
-        if (nextState.status === 'reached') break;
+        appendExecutionLog(slot, state.language === 'zh-CN' ? '已达到草案目标' : 'Draft target reached');
       }
-    }
-
-    if (stopMessage) {
-      runtime.lastPlan = buildBatchPlan(currentRecords, target);
-      renderPlan(runtime.lastPlan, getCrystalPlanRows(runtime.lastPlan));
-      setStatus(stopMessage);
-      return;
-    }
-
-    const finalRecords = await mapLimit(currentRecords, HVUT_MAX_CONNECTIONS, async (record) => {
-      const levels = await fetchMonsterLevels(record.slot);
-      return cacheMonsterRecord({
-        slot: record.slot,
-        name: record.name,
-        levels,
-      });
-    });
-    const complete = finalRecords.every((record) =>
-      Math.abs(totalPL(record.levels) - target) <= EPS
-    );
-
-    await refreshMarketSnapshot({ silent: true, rerender: false, applySavedSources: false });
-    runtime.lastPlan = buildBatchPlan(finalRecords, target);
-    renderPlan(runtime.lastPlan);
-    if (complete) {
+      renderPlan(buildDraftPlan());
       setStatus(t('statusUpgradeComplete', {
-        total: finalRecords.length,
-        target: formatPL(target),
-        requests: requestCount,
+        total: frozenSlots.length, target: formatPL(state.targetPL), requests: requestCount,
       }));
-      return;
+    } catch (error) {
+      renderPlan(buildDraftPlan());
+      const logSection = $('#hvmepp-log-section');
+      if (logSection?.tagName === 'DETAILS') logSection.open = true;
+      throw error;
     }
-
-    const failedRecord = finalRecords.find((record) =>
-      Math.abs(totalPL(record.levels) - target) > EPS
-    );
-    const failedPL = totalPL(failedRecord.levels);
-    const failedIssue = getTargetFailureIssue(
-      failedPL > target + EPS ? 'above' : 'unreachable',
-      failedRecord.slot,
-      failedPL,
-      target
-    );
-    setStatus(t(failedIssue.key, failedIssue.params));
   }
 
   function renderPriceSourceSelect(id, selectedValue, values = priceSourceValues) {
@@ -2854,8 +2801,16 @@
   function setRuntimeBusy(busy) {
     const nextBusy = Boolean(busy);
     runtime.busy = nextBusy;
-    $all('.hvmepp-rename-control, .hvmepp-language-control')
-      .forEach((control) => { control.disabled = nextBusy; });
+    $all('.hvmepp-rename-control, .hvmepp-language-control, #hvmepp-planner-controls :is(input,select,button), .hvmepp-upgrade-editor :is(input,button)')
+      .forEach((control) => {
+        if (nextBusy) {
+          control.dataset.hvmmBusyDisabled = control.disabled ? '1' : '0';
+          control.disabled = true;
+        } else {
+          control.disabled = control.dataset.hvmmBusyDisabled === '1';
+          delete control.dataset.hvmmBusyDisabled;
+        }
+      });
     $all('.hvmepp-monster-list').forEach((list) => {
       list.setAttribute('aria-disabled', String(nextBusy));
       list.classList.toggle('hvmepp-disabled', nextBusy);
@@ -2918,6 +2873,10 @@
     readInputs({ save: false });
     state.language = normalizeLanguage(language);
     saveState();
+    document.documentElement.dataset.hvmmLanguage = state.language === 'zh-CN' ? 'zh' : 'en';
+    document.dispatchEvent(new CustomEvent('hvmm:languagechange', {
+      detail: { language: document.documentElement.dataset.hvmmLanguage },
+    }));
     refreshLocalizedText({ rerenderResult: false });
     if (runtime.panelMode === 'planner' && state.selectedMonsterSlots.length) calculate();
     setStatus(t('statusLanguageChanged'));
@@ -3013,156 +2972,324 @@
     return section;
   }
 
-  function renderCrystalPlan(plan, rows) {
-    const content = elt('div', { class: 'hvmepp-crystal-content' });
-
-    if (!plan.ok) {
-      content.appendChild(elt('div', { class: 'hvmepp-alert hvut-warn', text: t('crystalPlanUnavailable') }));
-      return content;
-    }
-
-    const table = elt('table', { class: 'hvmepp-table hvmepp-crystal-table' });
-    table.appendChild(elt('tr', {}, TABLE_HEADER_KEYS.crystal
-      .map((key) => elt('th', { text: t(key) }))));
-
-    rows.forEach((row) => {
-      const shortage = row.shortage === null ? '-' : row.shortage.toLocaleString();
-      let estimatedCost = row.shortage > 0 ? t('estimateUnavailable') : formatMoney(0);
-      let estimateTitle = '';
-      const estimate = row.orderBookEstimate;
-      if (estimate) {
-        estimatedCost = estimate.remainingBatches
-          ? t('estimatePartial', {
-            available: estimate.coveredBatches.toLocaleString(),
-            needed: row.batches.toLocaleString(),
-          })
-          : formatMoney(estimate.estimatedCost);
-        const range = estimate.lowestBatchPrice === estimate.highestBatchPrice
-          ? `${estimate.lowestBatchPrice} C`
-          : `${estimate.lowestBatchPrice}-${estimate.highestBatchPrice} C`;
-        estimateTitle = range;
-      } else if (row.shortage > 0 && row.orderBookLoaded) {
-        estimatedCost = t('estimateNoSellOrders');
-      }
-      const tr = elt('tr', { class: row.shortage > 0 ? 'hvmepp-shortage hvut-warn' : '' }, [
-        elt('td', { text: row.label }),
-        elt('td', { text: row.required.toLocaleString() }),
-        elt('td', { text: row.stock === null ? t('stockUnknown') : row.stock.toLocaleString() }),
-        elt('td', { text: shortage }),
-        elt('td', { text: estimatedCost, title: estimateTitle }),
-        elt('td', {}, elt('input', {
-          id: `hvmepp-order-price-${row.attr}`,
-          type: 'number',
-          min: 1,
-          step: 1,
-          value: row.orderBatchPrice || '',
-          disabled: !row.batchSize,
-          title: row.label,
-        })),
-      ]);
-      table.appendChild(tr);
+  function validateDraft(draft) {
+    const invalid = {};
+    if (!draft || draft.status !== 'ready') return { ...(draft?.invalid || {}), status: true };
+    UPGRADE_CONFIGS.forEach(({ key, max }) => {
+      const raw = String(draft.raw?.[key] ?? draft.target[key]);
+      const value = Number(raw);
+      if (!/^\d+$/.test(raw) || !Number.isInteger(value) || value < draft.current[key] || value > max) invalid[key] = true;
     });
-    content.appendChild(elt('div', { class: 'hvmepp-table-wrap' }, table));
-
-    const estimateSummary = getPurchaseEstimateSummary(rows);
-    if (estimateSummary) {
-      content.appendChild(elt('div', {
-        class: 'hvmepp-estimate-summary',
-        text: estimateSummary.complete
-          ? t('estimateSummary', { cost: formatMoney(estimateSummary.estimatedCost) })
-          : t('estimatePartialSummary', {
-            available: estimateSummary.coveredBatches.toLocaleString(),
-            needed: estimateSummary.totalBatches.toLocaleString(),
-          }),
-      }));
-    }
-
-    return content;
+    draft.invalid = invalid;
+    return invalid;
   }
 
-  function renderPlan(plan, crystalRows = null) {
-    const crystalBox = $('#hvmepp-crystal-result');
-    const upgradeBox = $('#hvmepp-upgrade-result');
-    if (!crystalBox || !upgradeBox) return;
-    const crystalFragment = document.createDocumentFragment();
-    const upgradeFragment = document.createDocumentFragment();
+  function crystalRequirement(attr, from, to) {
+    let crystals = 0;
+    for (let level = from; level < to; level++) crystals += crystalCost(attr, level);
+    return crystals;
+  }
 
-    if (!plan || plan.message) {
-      const invalidPlan = plan || { ok: false };
-      crystalFragment.appendChild(renderCrystalPlan(invalidPlan, []));
-      upgradeFragment.appendChild(elt('div', {
-        class: 'hvmepp-alert hvut-warn',
-        text: plan?.message || t('errorNoValidPlan'),
-      }));
-    } else {
-      upgradeFragment.appendChild(elt('div', { class: 'hvmepp-total' }, [
-        `${t('totalMonsters')} `,
-        elt('span', { class: 'hvmepp-good hvut-bonus', text: String(plan.monsterCount) }),
-        `   ${t('totalCost')} `,
-        elt('span', { class: 'hvmepp-good hvut-bonus', text: formatMoney(plan.totalCost) }),
-      ]));
-      crystalFragment.appendChild(renderCrystalPlan(plan, crystalRows || getCrystalPlanRows(plan)));
-      plan.results.forEach((result) => {
-        const details = elt('details', { class: 'hvmepp-monster-result' }, elt('summary', {
-          text: result.ok
-            ? `#${result.monsterSlot || '-'} ${result.monsterName} / PL ${formatPL(result.currentPL)} → ${formatPL(result.targetPL)} / ${formatMoney(result.totalCost)}`
-            : `#${result.monsterSlot || '-'} ${result.monsterName}`,
+  function buildDraftPlan() {
+    const targetPL = Number(state.targetPL);
+    const requirements = Object.fromEntries(all.map((attr) => [attr, 0]));
+    let chaosTokens = 0;
+    let totalCost = 0;
+    const results = state.selectedMonsterSlots.map(String).map((slot) => {
+      const draft = runtime.drafts.get(slot);
+      const classification = Object.keys(validateDraft(draft)).length
+        ? { status: 'invalid', message: t('errorDraftInput') }
+        : classifyUpgradeDraft(draft, targetPL);
+      if (classification.status !== 'invalid' && draft) {
+        all.forEach((attr) => {
+          const amount = crystalRequirement(attr, draft.current[attr], draft.target[attr]);
+          requirements[attr] += amount;
+          totalCost += amount * Number(runtime.prices[attr] || defaultPrice[attr]);
+        });
+        chaosKeys.forEach((key) => { chaosTokens += chaosTokenCost(draft.current[key], draft.target[key]); });
+      }
+      return {
+        draft, classification, monsterSlot: slot,
+        monsterName: draft?.name || getMonsterMeta(slot).name,
+        currentPL: draft?.current ? totalPL(draft.current) : NaN,
+        targetPL: draft?.target ? totalPL(draft.target) : NaN,
+      };
+    });
+    const invalid = results.find(({ classification }) => classification.status === 'invalid');
+    const active = results.filter(({ classification }) => !['none', 'invalid'].includes(classification.status));
+    return {
+      ok: results.length > 0 && !invalid,
+      message: invalid?.classification.message || (!results.length ? t('errorNoMonsterSelection') : ''),
+      targetPL, results, active, requirements, chaosTokens, totalCost, monsterCount: active.length,
+    };
+  }
+
+  function calculateExactPlan() {
+    readInputs();
+    const drafts = state.selectedMonsterSlots.map((slot) => runtime.drafts.get(String(slot)));
+    if (!drafts.length || drafts.some((draft) => draft?.status !== 'ready')) {
+      setStatus(t('errorChaosLoad'));
+      return null;
+    }
+    if (drafts.some((draft) => Object.keys(validateDraft(draft)).length)) {
+      setStatus(t('errorDraftInput'));
+      calculate();
+      return null;
+    }
+    const changed = drafts.some((draft) => classifyUpgradeDraft(draft, state.targetPL).status !== 'none');
+    if (changed && runtime.draftMode === 'custom' && !confirm(t('buttonCalculatePlan'))) return null;
+    for (const draft of drafts) {
+      const solved = solveExact(draft.current, Number(state.targetPL));
+      if (!solved.ok) {
+        setStatus(solved.message);
+        return null;
+      }
+      all.forEach((key) => { draft.target[key] = solved.finalLevels[key]; });
+      chaosKeys.forEach((key) => { draft.target[key] = draft.current[key]; });
+      UPGRADE_CONFIGS.forEach(({ key }) => { draft.raw[key] = String(draft.target[key]); });
+      draft.invalid = {};
+      draft.mode = 'exact';
+    }
+    runtime.draftMode = 'exact';
+    return calculate();
+  }
+
+  function draftStatusLabel(status) {
+    return t({ pl: 'draftExact', 'chaos-only': 'draftChaosOnly', none: 'draftUnchanged', invalid: 'draftInvalid' }[status] || 'draftReady');
+  }
+
+  const upgradeGroupLabel = (group) => group[state.language === 'zh-CN' ? 2 : 1];
+  const upgradeItemLabel = (config) => state.language === 'zh-CN' && config.zh ? `${config.key} · ${config.zh}` : config.key;
+
+  function renderDraftInput(draft, config, compact = false) {
+    return elt('label', { class: 'hvmepp-upgrade-cell' }, [
+      ...(compact ? [elt('span', { text: upgradeItemLabel(config) })] : []),
+      elt('span', { class: 'hvmepp-cell-current', text: `${draft.current[config.key]} →` }),
+      elt('input', {
+        type: 'number', min: draft.current[config.key], max: config.max, step: 1,
+        value: draft.raw?.[config.key] ?? draft.target[config.key],
+        class: draft.invalid?.[config.key] ? 'hvmepp-invalid' : '',
+        dataset: { slot: draft.slot, key: config.key },
+        ariaLabel: `${config.key}: ${draft.current[config.key]}–${config.max}`,
+        ariaInvalid: String(Boolean(draft.invalid?.[config.key])),
+      }),
+    ]);
+  }
+
+  function populateMobileDraftCard(card, draft) {
+    if (card.querySelector('.hvmepp-upgrade-groups')) return;
+    const groups = elt('div', { class: 'hvmepp-upgrade-groups' });
+    UPGRADE_GROUPS.forEach((group) => groups.appendChild(elt('fieldset', {}, [
+      elt('legend', { text: upgradeGroupLabel(group) }),
+      ...UPGRADE_CONFIGS.filter((config) => config.group === group[0]).map((config) => renderDraftInput(draft, config, true)),
+    ])));
+    card.appendChild(groups);
+  }
+
+  function renderUpgradeEditor() {
+    const box = $('#hvmepp-upgrade-section .hvmepp-upgrade-editor');
+    if (!box) return;
+    const selected = state.selectedMonsterSlots.map(String);
+    const mobile = matchMedia('(max-width:900px)').matches;
+    const fragment = document.createDocumentFragment();
+    fragment.appendChild(elt('div', { class: 'hvmepp-editor-actions' }, [
+      ...UPGRADE_GROUPS.flatMap((group) => [
+        elt('button', { type: 'button', text: `${upgradeGroupLabel(group)} +1`, dataset: { draftAction: 'plus', group: group[0] } }),
+        ...(group[0] === 'chaos' ? [] : [elt('button', {
+          type: 'button', text: `${upgradeGroupLabel(group)} · ${t('buttonEqualize')}`, dataset: { draftAction: 'equalize', group: group[0] },
+        })]),
+      ]),
+      elt('button', { type: 'button', text: t('buttonResetAll'), dataset: { draftAction: 'reset-all' } }),
+    ]));
+    if (!selected.length) {
+      fragment.appendChild(elt('div', { class: 'hvmepp-alert', text: t('errorNoMonsterSelection') }));
+    } else if (mobile) {
+      selected.forEach((slot) => {
+        const draft = runtime.drafts.get(slot);
+        const changed = draft?.status === 'ready'
+          && classifyUpgradeDraft(draft, Number(state.targetPL)).status !== 'none';
+        const card = elt('details', {
+          class: 'hvmepp-upgrade-mobile-card',
+          open: draft?.status === 'error' || changed || runtime.openDraftSlots.has(slot), dataset: { slot },
+        }, elt('summary', {
+          text: draft?.status === 'ready'
+            ? `#${slot} ${draft.name} · PL ${formatPL(totalPL(draft.current))} → ${formatPL(totalPL(draft.target))}`
+            : `#${slot} ${draft?.status === 'loading' ? t('draftLoading') : draft?.message || t('errorChaosLoad')}`,
         }));
-        if (!result.ok) {
-          details.appendChild(elt('div', { class: 'hvmepp-alert hvut-warn', text: result.message }));
-        } else {
-          const table = elt('table', { class: 'hvmepp-table' }, elt('tr', {}, TABLE_HEADER_KEYS.upgrade
-            .map((key) => elt('th', { text: t(key) }))));
-          const upgraded = displayAll.filter((attr) => result.agg[attr].k > 0);
-          (upgraded.length ? upgraded : [null]).forEach((attr) => {
-            const item = attr && result.agg[attr];
-            table.appendChild(attr
-              ? elt('tr', { class: 'hvmepp-upgraded' }, [
-                  elt('td', { text: attrLabel(attr) }), elt('td', { text: item.from }),
-                  elt('td', { text: item.to }), elt('td', { text: `+${item.k}` }),
-                  elt('td', { text: formatMoney(item.cost) }),
-                ])
-              : elt('tr', {}, elt('td', { colspan: 5, text: t('noUpgradeNeeded') })));
-          });
-          details.appendChild(elt('div', { class: 'hvmepp-table-wrap' }, table));
-        }
-        upgradeFragment.appendChild(details);
+        fragment.appendChild(card);
       });
+    } else {
+      const table = elt('table', { class: 'hvmepp-upgrade-matrix' });
+      table.appendChild(elt('thead', {}, [
+        elt('tr', {}, [
+          elt('th', { rowspan: 2, text: '#' }),
+          elt('th', { rowspan: 2, text: t('tableName') }),
+          elt('th', { rowspan: 2, text: t('labelCurrentPL') }),
+          elt('th', { rowspan: 2, text: t('tableProjectedPL') }),
+          elt('th', { rowspan: 2, text: t('tableReset') }),
+          ...UPGRADE_GROUPS.map((group) => elt('th', {
+            colspan: UPGRADE_CONFIGS.filter(({ group: key }) => key === group[0]).length,
+            text: upgradeGroupLabel(group),
+          })),
+        ]),
+        elt('tr', {}, UPGRADE_CONFIGS.map((config) => elt('th', { text: upgradeItemLabel(config) }))),
+      ]));
+      const body = elt('tbody');
+      selected.forEach((slot) => {
+        const draft = runtime.drafts.get(slot);
+        if (draft?.status !== 'ready') {
+          body.appendChild(elt('tr', {}, elt('td', {
+            colspan: 29,
+            text: `#${slot} ${draft?.status === 'loading' ? t('draftLoading') : draft?.message || t('errorChaosLoad')}`,
+          })));
+          return;
+        }
+        const status = classifyUpgradeDraft(draft, Number(state.targetPL)).status;
+        body.appendChild(elt('tr', { dataset: { slot } }, [
+          elt('th', { text: `#${slot}` }),
+          elt('td', { text: draft.name }),
+          elt('td', { text: formatPL(totalPL(draft.current)) }),
+          elt('td', { text: `${formatPL(totalPL(draft.target))} · ${draftStatusLabel(status)}` }),
+          elt('td', {}, elt('button', { type: 'button', text: '↺', dataset: { draftAction: 'reset', slot } })),
+          ...UPGRADE_CONFIGS.map((config) => elt('td', {}, renderDraftInput(draft, config))),
+        ]));
+      });
+      table.appendChild(body);
+      fragment.appendChild(elt('div', { class: 'hvmepp-upgrade-matrix-wrap' }, table));
     }
-    const panel = $('#hvmepp-panel');
-    const scrollTop = panel?.scrollTop || 0;
-    crystalBox.replaceChildren(crystalFragment);
-    upgradeBox.replaceChildren(upgradeFragment);
-    crystalBox.removeAttribute('aria-busy');
-    upgradeBox.removeAttribute('aria-busy');
-    if (panel) panel.scrollTop = scrollTop;
+    box.replaceChildren(fragment);
+    box.querySelectorAll('.hvmepp-upgrade-mobile-card[open]').forEach((card) => {
+      const draft = runtime.drafts.get(card.dataset.slot);
+      if (draft?.status === 'ready') populateMobileDraftCard(card, draft);
+    });
+    if (box.dataset.bound) return;
+    box.dataset.bound = 'true';
+    box.addEventListener('toggle', (event) => {
+      const card = event.target.closest?.('.hvmepp-upgrade-mobile-card');
+      if (card) {
+        if (card.open) runtime.openDraftSlots.add(card.dataset.slot);
+        else runtime.openDraftSlots.delete(card.dataset.slot);
+      }
+      if (card?.open) {
+        const draft = runtime.drafts.get(card.dataset.slot);
+        if (draft?.status === 'ready') populateMobileDraftCard(card, draft);
+      }
+    }, true);
+    box.addEventListener('input', (event) => {
+      const input = event.target.closest('input[data-slot][data-key]');
+      if (!input || runtime.busy) return;
+      const draft = runtime.drafts.get(input.dataset.slot);
+      const config = UPGRADE_CONFIGS.find(({ key }) => key === input.dataset.key);
+      draft.raw[config.key] = input.value;
+      const value = Number(input.value);
+      const valid = /^\d+$/.test(input.value) && Number.isInteger(value)
+        && value >= draft.current[config.key] && value <= config.max;
+      if (valid) {
+        draft.target[config.key] = value;
+        delete draft.invalid[config.key];
+      } else draft.invalid[config.key] = true;
+      draft.mode = 'custom';
+      input.classList.toggle('hvmepp-invalid', !valid);
+      input.setAttribute('aria-invalid', String(!valid));
+      runtime.draftMode = 'custom';
+      calculate({ renderEditor: false });
+    });
+    box.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-draft-action]');
+      if (!button || runtime.busy) return;
+      const slots = button.dataset.slot ? [button.dataset.slot] : selected;
+      slots.forEach((slot) => {
+        const draft = runtime.drafts.get(slot);
+        if (draft?.status !== 'ready') return;
+        const configs = button.dataset.group
+          ? UPGRADE_CONFIGS.filter(({ group }) => group === button.dataset.group)
+          : UPGRADE_CONFIGS;
+        if (button.dataset.draftAction.startsWith('reset')) {
+          configs.forEach(({ key }) => {
+            draft.target[key] = draft.current[key];
+            draft.raw[key] = String(draft.current[key]);
+          });
+        } else if (button.dataset.draftAction === 'plus') {
+          configs.forEach(({ key, max }) => {
+            draft.target[key] = Math.min(max, draft.target[key] + 1);
+            draft.raw[key] = String(draft.target[key]);
+          });
+        } else if (button.dataset.draftAction === 'equalize') {
+          const level = Math.max(...configs.map(({ key }) => draft.target[key]));
+          configs.forEach(({ key, max }) => {
+            draft.target[key] = Math.min(max, level);
+            draft.raw[key] = String(draft.target[key]);
+          });
+        }
+        draft.invalid = {};
+        draft.mode = 'custom';
+      });
+      runtime.draftMode = 'custom';
+      calculate();
+    });
   }
 
-  function calculate() {
+  function renderUpgradeResources(plan = runtime.lastPlan) {
+    const box = $('#hvmepp-crystal-result');
+    if (!box) return;
+    if (!plan?.ok) {
+      box.replaceChildren(elt('div', { class: 'hvmepp-alert hvut-warn', text: plan?.message || t('errorNoValidPlan') }));
+      return;
+    }
+    const rows = getCrystalPlanRows(plan);
+    const table = elt('table', { class: 'hvmepp-table hvmepp-resource-table' });
+    table.appendChild(elt('tr', {}, TABLE_HEADER_KEYS.crystal.map((key) => elt('th', { text: t(key) }))));
+    rows.filter((row) => row.required > 0).forEach((row) => table.appendChild(elt('tr', {
+      class: row.shortage > 0 ? 'hvmepp-shortage hvut-warn' : '',
+    }, [
+      elt('td', { text: row.label }),
+      elt('td', { text: row.required.toLocaleString() }),
+      elt('td', { text: row.stock === null ? t('stockUnknown') : row.stock.toLocaleString() }),
+      elt('td', { text: row.shortage === null ? '-' : row.shortage.toLocaleString() }),
+      elt('td', { text: row.shortage > 0 ? t('estimateUnavailable') : formatMoney(0) }),
+      elt('td', {}, elt('input', {
+        id: `hvmepp-order-price-${row.attr}`, type: 'number', min: 1, step: 1,
+        value: row.orderBatchPrice || '', disabled: !row.batchSize,
+      })),
+    ])));
+    const tokenShortage = runtime.chaosTokens === null ? null : Math.max(0, plan.chaosTokens - runtime.chaosTokens);
+    if (plan.chaosTokens > 0) table.appendChild(elt('tr', { class: tokenShortage > 0 ? 'hvmepp-shortage hvut-warn' : '' }, [
+      elt('td', { text: t('tableChaosTokens') }), elt('td', { text: plan.chaosTokens.toLocaleString() }),
+      elt('td', { text: runtime.chaosTokens === null ? t('stockUnknown') : runtime.chaosTokens.toLocaleString() }),
+      elt('td', { text: tokenShortage === null ? '-' : tokenShortage.toLocaleString() }), elt('td', { colspan: 2, text: '-' }),
+    ]));
+    const zero = rows.filter((row) => row.required === 0);
+    if (plan.chaosTokens === 0) zero.push({ label: t('tableChaosTokens') });
+    const details = elt('details', { open: runtime.resourceRowsExpanded }, [
+      elt('summary', { text: `${t('headingUpgradeResources')} · 0 × ${zero.length}` }),
+      elt('table', { class: 'hvmepp-table hvmepp-zero-table' }, zero.map((row) =>
+        elt('tr', {}, [elt('td', { text: row.label }), elt('td', { text: '0' })])
+      )),
+    ]);
+    details.addEventListener('toggle', () => { runtime.resourceRowsExpanded = details.open; });
+    box.replaceChildren(elt('div', { class: 'hvmepp-table-wrap' }, table), details);
+    if (rows.some((row) => row.required > 0 && (row.stock === null || row.shortage > 0))
+      || (plan.chaosTokens > 0 && (tokenShortage === null || tokenShortage > 0))) {
+      const section = $('#hvmepp-crystal-section');
+      if (section?.tagName === 'DETAILS') section.open = true;
+    }
+  }
+
+  function renderPlan(plan) {
+    runtime.lastPlan = plan;
+    renderUpgradeEditor();
+    renderUpgradeResources(plan);
+  }
+
+  function calculate({ renderEditor = true } = {}) {
     clearTimeout(runtime.calculationTimer);
     runtime.calculationTimer = null;
     readInputs();
     renderLogSummary();
-
-    const selected = state.selectedMonsterSlots;
-    if (!selected.length) {
-      runtime.lastPlan = null;
-      renderPlan(null);
-      return null;
-    }
-
-    const monsters = selected.map((slot) => runtime.monsters.get(String(slot))).filter(Boolean);
-    if (monsters.length !== selected.length) {
-      const invalidPlan = { message: t('errorMonstersNotLoaded') };
-      runtime.lastPlan = null;
-      renderPlan(invalidPlan);
-      setStatus(invalidPlan.message);
-      return invalidPlan;
-    }
-
-    const plan = buildBatchPlan(monsters, Number(state.targetPL));
+    const plan = buildDraftPlan();
     runtime.lastPlan = plan;
-    renderPlan(plan);
+    if (renderEditor) renderUpgradeEditor();
+    renderUpgradeResources(plan);
     return plan;
   }
 
@@ -3431,10 +3558,10 @@
     ]));
 
     const actionHandlers = {
-      refresh: refreshAllData,
+      calculate: calculateExactPlan,
       direct: (button) => executeCrystalPurchase('direct', button),
       order: (button) => executeCrystalPurchase('order', button),
-      upgrade: (button) => executeBatchUpgradePlan(calculate(), button),
+      upgrade: (button) => executeBatchUpgradePlan(runtime.lastPlan || calculate(), button),
     };
     const actionButtons = Object.fromEntries(PLANNER_ACTION_CONFIGS.map(([name, id, textKey]) =>
       [name, renderButton(id, textKey)]
@@ -3442,7 +3569,11 @@
     actions.append(...Object.values(actionButtons));
     controls.append(settings, actions);
 
-    settings.querySelector('#hvmepp-target').addEventListener('input', () => scheduleCalculation(80));
+    settings.querySelector('#hvmepp-target').addEventListener('input', () => {
+      readInputs();
+      runtime.draftMode = 'custom';
+      calculate();
+    });
     settings.querySelector('#hvmepp-source').addEventListener('change', () => {
       readInputs({ save: false });
       const result = applyPricesByCrystal(getCrystalPricesForSource(state.priceSource));
@@ -3522,15 +3653,35 @@
 
     runtime.monsterList = parseHvutMonsterList();
     hydrateMonsterCache(runtime.monsterList);
+    const routedSlot = /^#planner\/([1-9]\d*)$/.exec(location.hash)?.[1];
+    if (panelMode === 'planner' && routedSlot
+      && runtime.monsterList.some((monster) => String(monster.index) === routedSlot)) {
+      state.selectedMonsterSlots = [routedSlot];
+      runtime.selectionAnchorSlot = routedSlot;
+      saveState();
+    }
     if (panelMode === 'rename') {
       if (runtime.monsterList.length) {
-        panel.append(renderMonsterSelection(runtime.monsterList), renderMonsterRename(runtime.monsterList));
+        panel.appendChild(elt('div', { class: 'hvmepp-manager-layout' }, [
+          renderMonsterSelection(runtime.monsterList),
+          elt('div', { class: 'hvmepp-manager-workspace' }, renderMonsterRename(runtime.monsterList)),
+        ]));
       }
     } else {
-      panel.appendChild(renderPlannerControls());
-      if (runtime.monsterList.length) panel.appendChild(renderMonsterSelection(runtime.monsterList));
-      panel.append(...PLANNER_SECTION_CONFIGS.map(renderConfiguredSection));
+      const workspace = elt('div', { class: 'hvmepp-manager-workspace' }, [
+        renderPlannerControls(),
+        ...PLANNER_SECTION_CONFIGS.map(renderConfiguredSection),
+      ]);
+      panel.appendChild(elt('div', { class: 'hvmepp-manager-layout' }, [
+        ...(runtime.monsterList.length ? [renderMonsterSelection(runtime.monsterList)] : []),
+        workspace,
+      ]));
       renderLogSummary();
+      if (!runtime.draftMedia) {
+        runtime.draftMedia = matchMedia('(max-width:900px)');
+        runtime.draftMedia.addEventListener('change', renderUpgradeEditor);
+      }
+      queueMicrotask(() => loadSelectedDrafts());
     }
     const panelHost = getDokidokiHost()?.addonHost || host.mainpane;
     panelHost.appendChild(panel);
@@ -3549,6 +3700,7 @@
       dataset: {
         i18nValue: textKey,
         panelMode: mode,
+        dokidokiGroup: 'manager',
         version: ADDON_VERSION,
         hvutVersion: HVUT_REQUIRED_VERSION,
       },
@@ -3610,6 +3762,7 @@
         t('errorHvutRequired', { version: HVUT_REQUIRED_VERSION })
       );
       mountEntryButtons();
+      if (/^#planner\/[1-9]\d*$/.test(location.hash)) renderPanel('planner');
     } catch (error) {
       showHvutDependencyError(error.message);
       logWarning('hvutils.host.missing', 'The required HV Utils Monster Lab host was not found.', {
@@ -3619,74 +3772,23 @@
   }
 
   GM_addStyle(`
-    .hvmepp-entry{cursor:pointer;display:block;box-sizing:border-box;}
-    #hvmepp-panel{width:var(--hvmm-panel-width,100%);max-width:100%;height:675px;overflow:auto;overflow-anchor:none;background:var(--color-bg-default);color:var(--color-font-default);border:1px solid var(--color-border-default);padding:8px;font:9pt/1.25 Arial,sans-serif;text-align:left;box-sizing:border-box;}
-    #hvmepp-dependency-error{margin:8px;}
-    #hvmepp-hvut-stale{display:flex;align-items:center;justify-content:space-between;gap:8px;}
-    .hvmepp-title{display:flex;justify-content:space-between;align-items:center;font-weight:bold;font-size:11pt;margin-bottom:4px;}
-    .hvmepp-lang-switch{display:flex;justify-content:center;align-items:center;gap:6px;margin:0 32px 5px;}
-    .hvmepp-lang-switch button{min-width:76px;padding:2px 8px;border:1px solid var(--color-border-light);background:var(--color-bg-alpha);color:var(--color-font-default);cursor:pointer;font:inherit;}
-    .hvmepp-lang-switch button.hvmepp-lang-active{border-color:var(--color-border-default);background:var(--color-bg-h1);color:var(--color-font-default);font-weight:bold;}
-    .hvmepp-title-actions{display:flex;align-items:center;gap:8px;}
-    .hvmepp-easter-egg{padding:0;border:0;background:none;color:var(--color-font-light);cursor:pointer;font-family:inherit;font-size:9pt;font-weight:normal;white-space:nowrap;}
-    .hvmepp-close{width:24px;height:22px;cursor:pointer;}
-    .hvmepp-log-output{padding:4px 6px;background:var(--color-bg-alpha);border:1px solid var(--color-border-light);}
-    #hvmepp-log-message:not(:empty){margin-top:4px;padding-top:4px;border-top:1px solid var(--color-border-alpha);}
-    .hvmepp-controls{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;margin:5px 0;}
-    .hvmepp-controls input,.hvmepp-controls select{font-size:9pt;}
-    .hvmepp-controls button{cursor:pointer;font:inherit;padding:2px 6px;}
-    .hvmepp-top-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin:5px 0;}
-    .hvmepp-top-actions button{min-width:0;padding:2px 4px;font:inherit;white-space:normal;cursor:pointer;}
-    .hvmepp-card{border:1px solid var(--color-border-light);background:var(--color-bg-alpha);padding:5px;}
-    .hvmepp-section{margin:6px 0;}
-    .hvmepp-collapsible{padding:0;}
-    .hvmepp-section-heading{padding:5px 7px;cursor:pointer;font-size:10pt;font-weight:bold;user-select:none;}
-    .hvmepp-collapsible[open] > .hvmepp-section-heading{border-bottom:1px solid var(--color-border-light);}
-    .hvmepp-section-body{padding:5px;}
-    .hvmepp-card h3{margin:0 0 4px;font-size:10pt;}
-    .hvmepp-selection-meta{display:grid;gap:2px;margin-bottom:4px;}
-    .hvmepp-selection-help{color:var(--color-font-light);font-size:8pt;}
-    .hvmepp-monster-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:2px 8px;max-height:170px;overflow:auto;padding:4px;border:1px solid var(--color-border-light);background:var(--color-bg-alpha);}
-    .hvmepp-monster-list:focus-visible{outline:1px solid var(--color-border-default);outline-offset:1px;}
-    .hvmepp-monster-option{min-width:0;padding:2px 4px;overflow:hidden;border:1px solid transparent;white-space:nowrap;text-overflow:ellipsis;user-select:none;cursor:default;}
-    .hvmepp-monster-option.hvmepp-selected{border-color:var(--color-border-default);background:var(--color-bg-h1);}
-    .hvmepp-monster-list.hvmepp-disabled{opacity:0.55;}
-    .hvmepp-rename-file-label,.hvmepp-rename-text-label{display:grid;gap:3px;margin:4px 0;}
-    .hvmepp-file-input{display:none;}
-    .hvmepp-file-picker{display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
-    .hvmepp-file-name{color:var(--color-font-invalid);overflow-wrap:anywhere;}
-    #hvmepp-rename-mappings{width:100%;box-sizing:border-box;resize:vertical;font:9pt/1.35 Consolas,monospace;}
-    #hvmepp-rename-prefix{min-width:180px;}
-    .hvmepp-rename-help{color:var(--color-font-invalid);margin:3px 0;}
-    .hvmepp-rename-preview{max-height:180px;overflow:auto;margin:4px 0;padding:4px;border:1px solid var(--color-border-light);background:var(--color-bg-alpha);}
-    .hvmepp-rename-preview ul{margin:3px 0 0;padding-left:20px;}
-    .hvmepp-rename-pattern{font-family:Consolas,monospace;}
-    .hvmepp-rename-issue{color:var(--color-font-warn);}
-    .hvmepp-rename-status{min-height:1.25em;margin-top:5px;padding-top:5px;border-top:1px solid var(--color-border-light);}
-    .hvmepp-table{width:100%;border-collapse:collapse;margin:4px 0;table-layout:fixed;font-size:9pt;}
-    .hvmepp-table-wrap{width:100%;overflow-x:auto;overflow-y:hidden;}
-    .hvmepp-table-wrap>.hvmepp-table{min-width:560px;}
-    .hvmepp-table th,.hvmepp-table td{border:1px solid var(--color-border-light);padding:2px 3px;text-align:center;word-break:keep-all;}
-    .hvmepp-table th{background:var(--color-bg-h1);}
-    .hvmepp-table input{width:58px;text-align:right;box-sizing:border-box;}
-    .hvmepp-total{margin:5px 0;padding:5px 6px;border:1px solid var(--color-border-light);background:var(--color-bg-light);line-height:1.4;font-weight:bold;}
-    .hvmepp-monster-result{margin:5px 0;border:1px solid var(--color-border-light);background:var(--color-bg-alpha);}
-    .hvmepp-monster-result > summary{padding:5px 6px;cursor:pointer;font-weight:bold;background:var(--color-bg-h1);}
-    .hvmepp-monster-result > .hvmepp-table-wrap,.hvmepp-monster-result > .hvmepp-alert{width:calc(100% - 8px);margin:4px;}
-    .hvmepp-crystal-table td:first-child,.hvmepp-crystal-table th:first-child{width:230px;text-align:left;}
-    .hvmepp-crystal-table td:last-child,.hvmepp-crystal-table th:last-child{width:105px;}
-    .hvmepp-crystal-table td:last-child input{width:96px;}
-    .hvmepp-estimate-summary{margin:4px 0;padding:5px 6px;border:1px solid var(--color-border-light);background:var(--color-warn-bg);line-height:1.4;font-weight:bold;}
-    .hvmepp-shortage{background:var(--color-warn-alpha);font-weight:bold;}
-    .hvmepp-good{font-weight:bold;}
-    .hvmepp-alert{margin:5px 0;padding:5px 6px;border:1px solid var(--color-font-warn);background:var(--color-warn-alpha);font-weight:bold;}
-    .hvmepp-upgraded{background:var(--color-bg-light);}
-    #dokidoki-shell #hvmepp-panel{--color-bg-default:var(--dokidoki-surface);--color-bg-alpha:var(--dokidoki-surface-2);--color-bg-h1:#382335;--color-bg-light:#2d1c2a;--color-border-default:var(--dokidoki-gold);--color-border-light:var(--dokidoki-border);--color-border-alpha:#70405288;--color-font-default:var(--dokidoki-text);--color-font-light:var(--dokidoki-muted);--color-font-invalid:#e3a7bd;--color-font-warn:#ffb0b9;--color-warn-bg:#4b2430;--color-warn-alpha:#6b263d77;position:relative!important;inset:auto!important;z-index:auto!important;width:100%;max-width:none;height:calc(100vh - 175px);min-height:560px;margin:0;padding:12px;border:0;border-radius:8px;background:var(--dokidoki-surface);color:var(--dokidoki-text);scrollbar-color:var(--dokidoki-wine) #120e15;}#dokidoki-shell #hvmepp-panel button,#dokidoki-shell #hvmepp-panel input,#dokidoki-shell #hvmepp-panel select,#dokidoki-shell #hvmepp-panel textarea{border-color:var(--dokidoki-border);background:#120e15;color:var(--dokidoki-text);}
-    #dokidoki-shell #hvmepp-panel button:focus-visible,#dokidoki-shell #hvmepp-panel input:focus-visible,#dokidoki-shell #hvmepp-panel select:focus-visible,#dokidoki-shell #hvmepp-panel textarea:focus-visible{outline:2px solid #d3b27388;outline-offset:1px;}#dokidoki-shell #hvmepp-panel .hvmepp-table-wrap{max-width:100%;border-radius:5px;scrollbar-color:var(--dokidoki-wine) #120e15;}
-    @media (max-width:900px){#hvmepp-panel{padding:6px;}
-    #dokidoki-shell #hvmepp-panel{height:auto;min-height:0;max-height:none;padding:7px;}
-    .hvmepp-table input{width:50px;}
-    }
+    .hvmepp-entry{display:block;box-sizing:border-box;cursor:pointer}
+    #hvmepp-panel{box-sizing:border-box;width:var(--hvmm-panel-width,100%);max-width:100%;height:min(760px,calc(100vh - 40px));min-height:560px;padding:8px;overflow-x:hidden;overflow-y:auto;overflow-anchor:none;border:1px solid var(--color-border-default);background:var(--color-bg-default);color:var(--color-font-default);font:9pt/1.35 Verdana,"Noto Sans SC",sans-serif;text-align:left}
+    #hvmepp-dependency-error{margin:8px}.hvmepp-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;font-size:11pt;font-weight:700}.hvmepp-title-actions,.hvmepp-lang-switch,.hvmepp-confirm-actions{display:flex;align-items:center;gap:8px}.hvmepp-lang-switch{justify-content:center;margin:0 32px 6px}.hvmepp-lang-switch button{min-width:76px}.hvmepp-title-actions{margin-left:auto}.hvmepp-easter-egg{border:0;background:none;color:var(--color-font-light);font:inherit;cursor:pointer}.hvmepp-close{width:32px;height:32px;cursor:pointer}
+    .hvmepp-manager-layout{display:grid;grid-template-columns:280px minmax(0,1fr);align-items:start;gap:8px;min-width:0}.hvmepp-manager-workspace{display:grid;gap:7px;min-width:0}.hvmepp-manager-layout>#hvmepp-selection-section{position:sticky;top:0;margin:0}.hvmepp-manager-workspace>.hvmepp-section,.hvmepp-upgrade-editor{min-width:0;margin:0}
+    .hvmepp-card{box-sizing:border-box;padding:6px;border:1px solid var(--color-border-light);background:var(--color-bg-alpha)}.hvmepp-section{margin:6px 0}.hvmepp-collapsible{padding:0}.hvmepp-section-heading{min-height:34px;padding:7px;cursor:pointer;font-size:10pt;font-weight:700;user-select:none}.hvmepp-collapsible[open]>.hvmepp-section-heading{border-bottom:1px solid var(--color-border-light)}.hvmepp-section-body{padding:6px}.hvmepp-card h3{margin:0 0 5px;font-size:10pt}
+    .hvmepp-controls{display:flex;flex-wrap:wrap;align-items:end;gap:6px 9px;margin:5px 0}.hvmepp-controls label{display:grid;gap:3px}.hvmepp-controls :is(input,select,button),.hvmepp-top-actions button,.hvmepp-editor-actions button{box-sizing:border-box;min-height:36px;padding:5px 8px;color:inherit;font:inherit}.hvmepp-top-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin:5px 0}
+    .hvmepp-selection-meta{display:grid;gap:3px;margin-bottom:5px}.hvmepp-selection-help{color:var(--color-font-light);font-size:8pt}.hvmepp-monster-list{display:grid;grid-template-columns:1fr;gap:2px;max-height:590px;padding:4px;overflow:auto;border:1px solid var(--color-border-light);background:var(--color-bg-alpha)}.hvmepp-monster-option{min-width:0;padding:5px 6px;overflow:hidden;border:1px solid transparent;white-space:nowrap;text-overflow:ellipsis;user-select:none}.hvmepp-monster-option.hvmepp-selected{border-color:var(--dokidoki-brass,var(--color-border-default));background:var(--dokidoki-surface-strong,var(--color-bg-h1))}.hvmepp-monster-list:focus-visible{outline:3px solid rgba(155,106,36,.4);outline-offset:1px}.hvmepp-monster-list.hvmepp-disabled{opacity:.55}
+    .hvmepp-editor-actions{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}.hvmepp-upgrade-matrix-wrap{box-sizing:border-box;width:100%;max-width:100%;max-height:520px;overflow:auto;border:1px solid var(--color-border-light)}.hvmepp-upgrade-matrix{width:max-content;min-width:100%;border-collapse:separate;border-spacing:0;font-size:8pt}.hvmepp-upgrade-matrix :is(th,td){min-width:62px;padding:3px;border:solid var(--color-border-light);border-width:0 1px 1px 0;background:var(--color-bg-alpha);text-align:center}.hvmepp-upgrade-matrix thead th{position:sticky;top:0;z-index:5;background:var(--color-bg-h1)}.hvmepp-upgrade-matrix thead tr:nth-child(2) th{top:28px}.hvmepp-upgrade-matrix :is(th,td):nth-child(1){position:sticky;left:0;z-index:4;min-width:46px;max-width:46px}.hvmepp-upgrade-matrix :is(th,td):nth-child(2){position:sticky;left:46px;z-index:4;min-width:124px;max-width:124px;text-align:left}.hvmepp-upgrade-matrix :is(th,td):nth-child(3){position:sticky;left:170px;z-index:4;min-width:64px}.hvmepp-upgrade-matrix :is(th,td):nth-child(4){position:sticky;left:234px;z-index:4;min-width:105px}.hvmepp-upgrade-matrix :is(th,td):nth-child(5){position:sticky;left:339px;z-index:4;min-width:42px}.hvmepp-upgrade-cell{display:flex;align-items:center;justify-content:center;gap:3px}.hvmepp-upgrade-cell input{box-sizing:border-box;width:42px;min-height:30px;text-align:center}.hvmepp-cell-current{color:var(--color-font-light);font-variant-numeric:tabular-nums}.hvmepp-invalid{border:2px solid var(--color-font-invalid)!important;background:var(--color-warn-alpha)!important}.hvmepp-upgrade-mobile-card{margin:5px 0;border:1px solid var(--color-border-light);background:var(--color-bg-alpha)}.hvmepp-upgrade-mobile-card>summary{min-height:40px;padding:8px;font-weight:700;cursor:pointer}.hvmepp-upgrade-groups{display:grid;gap:6px;padding:6px}.hvmepp-upgrade-groups fieldset{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;border:1px solid var(--color-border-light)}
+    .hvmepp-table{width:100%;margin:4px 0;border-collapse:collapse;table-layout:fixed;font-size:9pt}.hvmepp-table-wrap{width:100%;overflow-x:auto}.hvmepp-table-wrap>.hvmepp-table{min-width:650px}.hvmepp-table :is(th,td){padding:3px;border:1px solid var(--color-border-light);text-align:center;word-break:keep-all}.hvmepp-table th{background:var(--color-bg-h1)}.hvmepp-table input{box-sizing:border-box;width:88px;text-align:right}.hvmepp-zero-table{max-width:430px}.hvmepp-shortage{background:var(--color-warn-alpha);font-weight:700}.hvmepp-alert{margin:5px 0;padding:6px;border:1px solid var(--color-font-warn);background:var(--color-warn-alpha);font-weight:700}
+    .hvmepp-log-output{padding:5px 7px;border:1px solid var(--color-border-light);background:var(--color-bg-alpha)}.hvmepp-log-output details{margin:3px 0}.hvmepp-log-output pre{max-height:180px;overflow:auto;white-space:pre-wrap}#hvmepp-log-message:not(:empty){margin-top:4px;padding-top:4px;border-top:1px solid var(--color-border-alpha)}
+    .hvmepp-confirm-dialog{width:min(680px,calc(100vw - 24px));max-height:80vh;padding:16px;overflow:auto;border:2px solid var(--dokidoki-brass,var(--color-border-default));border-radius:8px;background:var(--dokidoki-surface,var(--color-bg-default));color:var(--dokidoki-ink,var(--color-font-default));box-shadow:0 18px 50px rgba(0,0,0,.35)}.hvmepp-confirm-dialog::backdrop{background:rgba(34,27,24,.58)}.hvmepp-confirm-dialog h2{margin-top:0}.hvmepp-confirm-actions{justify-content:flex-end;margin-top:14px}.hvmepp-confirm-actions button{min-width:110px;min-height:40px}.hvmepp-confirm-execute{border-color:var(--dokidoki-brass,var(--color-border-default));background:#F1DEB7;color:#3F302B}
+    .hvmepp-rename-file-label,.hvmepp-rename-text-label{display:grid;gap:3px;margin:4px 0}.hvmepp-file-input{display:none;}.hvmepp-file-picker{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.hvmepp-file-name,.hvmepp-rename-help{color:var(--color-font-invalid)}#hvmepp-rename-mappings{box-sizing:border-box;width:100%;resize:vertical;font:9pt/1.35 Consolas,monospace}#hvmepp-rename-prefix{min-width:180px}.hvmepp-rename-preview{max-height:180px;margin:4px 0;padding:4px;overflow:auto;border:1px solid var(--color-border-light);background:var(--color-bg-alpha)}.hvmepp-rename-preview ul{margin:3px 0 0;padding-left:20px}.hvmepp-rename-status{min-height:1.25em;margin-top:5px;padding-top:5px;border-top:1px solid var(--color-border-light)}
+    #dokidoki-shell #hvmepp-panel{--color-bg-default:var(--dokidoki-surface);--color-bg-alpha:var(--dokidoki-surface-2);--color-bg-h1:var(--dokidoki-surface-strong);--color-border-default:var(--dokidoki-amber);--color-border-light:var(--dokidoki-line);--color-border-alpha:rgba(155,106,36,.28);--color-font-default:var(--dokidoki-ink);--color-font-light:var(--dokidoki-muted);--color-font-invalid:var(--dokidoki-danger);--color-font-warn:var(--dokidoki-danger);--color-warn-alpha:rgba(142,38,54,.11);position:relative!important;inset:auto!important;z-index:auto!important;width:100%;max-width:none;height:calc(100vh - 150px);min-height:560px;margin:0;padding:10px;border:0;border-radius:6px;background:var(--dokidoki-surface);color:var(--dokidoki-ink);scrollbar-color:var(--dokidoki-amber) var(--dokidoki-surface-2)}
+    #dokidoki-shell #hvmepp-panel :is(button,input,select,textarea){border-color:var(--dokidoki-line);background:var(--dokidoki-surface-strong);color:var(--dokidoki-ink)}#dokidoki-shell #hvmepp-panel :is(button,input,select,textarea):focus-visible{outline:3px solid rgba(155,106,36,.42);outline-offset:2px}
+    @media(max-width:900px){#hvmepp-panel,#dokidoki-shell #hvmepp-panel{height:auto;min-height:0;max-height:none;padding:6px}.hvmepp-manager-layout{grid-template-columns:1fr}.hvmepp-manager-layout>#hvmepp-selection-section{position:static}.hvmepp-monster-list{grid-template-columns:repeat(2,minmax(0,1fr));max-height:220px}.hvmepp-top-actions{grid-template-columns:repeat(2,minmax(0,1fr))}.hvmepp-controls :is(input,select,button),.hvmepp-top-actions button,.hvmepp-editor-actions button,.hvmepp-upgrade-mobile-card>summary{min-height:44px}.hvmepp-upgrade-matrix-wrap{display:none}}
+    @media(max-width:520px){.hvmepp-monster-list,.hvmepp-upgrade-groups fieldset{grid-template-columns:1fr}.hvmepp-lang-switch{margin-inline:0}.hvmepp-title{align-items:flex-start}.hvmepp-easter-egg{display:none}}
+    @media(prefers-reduced-motion:reduce){#hvmepp-panel *,#hvmepp-panel *::before,#hvmepp-panel *::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
   `);
 
   setupDokidokiCompatibility();

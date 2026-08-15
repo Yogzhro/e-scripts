@@ -7,6 +7,60 @@ const RACE_KEYS = [
   'arthropod', 'avion', 'beast', 'celestial', 'daimon', 'dragonkin', 'elemental',
   'giant', 'humanoid', 'mechanoid', 'reptilian', 'sprite', 'undead',
 ];
+const PREVIEW_VERSION = '0.2.0.0';
+const CRC_TABLE = Uint32Array.from({ length: 256 }, (_, value) => {
+  let crc = value;
+  for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0);
+  return crc >>> 0;
+});
+
+function crc32(buffer) {
+  let crc = 0xFFFFFFFF;
+  for (const byte of buffer) crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ byte) & 0xFF];
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+function storedZip(entries) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  for (const { name, data } of entries) {
+    const filename = Buffer.from(name.replaceAll('\\', '/'));
+    const checksum = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034B50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0x0800, 6);
+    local.writeUInt16LE(33, 12);
+    local.writeUInt32LE(checksum, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(filename.length, 26);
+    localParts.push(local, filename, data);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014B50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(33, 14);
+    central.writeUInt32LE(checksum, 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(filename.length, 28);
+    central.writeUInt32LE(offset, 42);
+    centralParts.push(central, filename);
+    offset += local.length + filename.length + data.length;
+  }
+  const central = Buffer.concat(centralParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054B50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(central.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...localParts, central, end]);
+}
 
 function loadSharp() {
   try {
@@ -95,11 +149,34 @@ async function buildDevCopy(assetRoot = __dirname, productionPath = path.resolve
   return devPath;
 }
 
+async function buildPreviewPackage(
+  workspace = path.resolve(__dirname, '..', '..'),
+  output = path.join(__dirname, '.release', `dokidoki-preview-v${PREVIEW_VERSION}.zip`)
+) {
+  const files = [
+    'dokidoki-preview.html',
+    'dokidoki.js',
+    'resource/dokidoki/dist/list-sprite.webp',
+    ...RACE_KEYS.map(key => `resource/dokidoki/dist/detail/${key}.webp`),
+  ];
+  const missing = files.filter(file => !fs.existsSync(path.join(workspace, file)));
+  if (missing.length) throw new Error(`Missing preview files: ${missing.join(', ')}`);
+  fs.mkdirSync(path.dirname(output), { recursive: true });
+  fs.writeFileSync(output, storedZip(files.map(name => ({
+    name,
+    data: fs.readFileSync(path.join(workspace, name)),
+  }))));
+  return { output, files };
+}
+
 async function main() {
   const command = process.argv[2] || 'all';
-  if (!['all', 'dist', 'dev'].includes(command)) throw new Error('Usage: node build-assets.js [all|dist|dev]');
-  if (command !== 'dev') await buildAssets();
-  if (command !== 'dist') await buildDevCopy();
+  if (!['all', 'dist', 'dev', 'preview'].includes(command)) {
+    throw new Error('Usage: node build-assets.js [all|dist|dev|preview]');
+  }
+  if (command === 'all' || command === 'dist') await buildAssets();
+  if (command === 'all' || command === 'dev') await buildDevCopy();
+  if (command === 'all' || command === 'preview') await buildPreviewPackage();
 }
 
 if (require.main === module) {
@@ -109,4 +186,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { RACE_KEYS, loadSharp, buildAssets, buildDevCopy };
+module.exports = { RACE_KEYS, loadSharp, buildAssets, buildDevCopy, buildPreviewPackage };

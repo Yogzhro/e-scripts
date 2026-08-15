@@ -15,9 +15,9 @@ function extractBlock(startText, endText) {
   return source.slice(start, end);
 }
 
-assert(source.includes('// @version      0.3.3.0'));
-assert(source.includes("const ADDON_VERSION = '0.3.3.0'"));
-assert(lines <= 3700, `production script should stay <= 3700 lines with the shared cache, got ${lines}`);
+assert(source.includes('// @version      0.3.5.0'));
+assert(source.includes("const ADDON_VERSION = '0.3.5.0'"));
+assert(lines <= 3800, `production script should stay <= 3800 lines with the 24-field editor, got ${lines}`);
 
 const stateBlock = extractBlock('  const state = {', '\n  };');
 for (const staleKey of ['monsterCache', 'lastMonsterSlot', 'priceCache', 'prices']) {
@@ -58,6 +58,11 @@ for (const removedFunction of [
   'writeHvutPrices',
   'applyMonsterSelection',
   'refreshMonsterSelectionSummary',
+  'readHvutUpgradeSnapshot',
+  'loadSelectedMonsters',
+  'buildBatchPlan',
+  'renderCrystalPlan',
+  'getUpgradeResponseIssue',
 ]) {
   assert(!source.includes(`function ${removedFunction}(`), `${removedFunction} should be removed or inlined`);
 }
@@ -65,14 +70,16 @@ for (const removedFunction of [
 // Core safety and user-visible features must survive the refactor.
 for (const required of [
   'function solveExact(',
-  'function getUpgradeResponseIssue(',
+  'function classifyUpgradeDraft(',
+  'function buildNextDraftRequest(',
+  'function renderUpgradeEditor(',
   'async function executeBatchUpgradePlan(',
   'async function executeCrystalPurchase(',
   'async function executeBatchRename(',
   'if (text === \'state lock limiter in effect\')',
   'Math.min(10,',
   'parseMonsterUpgradeSnapshot(htmlToDoc(html))',
-  'buildBatchPlan(currentRecords, target)',
+  'buildDraftPlan()',
   "['direct', 'hvmepp-direct-buy'",
   "['order', 'hvmepp-place-buy-orders'",
 ]) {

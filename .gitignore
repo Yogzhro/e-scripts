@@ -1,6 +1,7 @@
 /reference/
 /.agents/
 /resource/dokidoki/.dev/
+/resource/dokidoki/.release/
 /node_modules/
 /.cache/
 /coverage/

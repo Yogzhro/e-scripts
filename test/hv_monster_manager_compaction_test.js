@@ -44,33 +44,13 @@ assert.deepEqual(getCrystalPlanIssue([{ label: 'B', shortage: 12 }]), {
 });
 assert.equal(getCrystalPlanIssue([{ label: 'C', shortage: 0 }]), null);
 
-const getUpgradeResponseIssue = Function(
-  'EPS', 'crystalLabel', 'attrLabel', 'getTargetFailureIssue',
-  `"use strict"; return (${extractFunction('getUpgradeResponseIssue')});`
-)(
-  1e-9,
-  (value) => `crystal:${value}`,
-  (value) => `attr:${value}`,
-  (status, slot, current, target) => ({
-    key: status === 'above' ? 'statusUpgradeAboveTarget' : 'statusUpgradeUnreachable',
-    params: { slot, current, target },
-  })
-);
-const baseUpgrade = {
-  snapshot: { insufficientCrystals: false }, previousPL: 10, updatedPL: 11,
-  target: 20, planOk: true, inventoryIssue: null, slot: '199',
-  request: { attr: 'STR', count: 1 },
-};
-assert.equal(getUpgradeResponseIssue(baseUpgrade), null);
-assert.equal(getUpgradeResponseIssue({
-  ...baseUpgrade, snapshot: { insufficientCrystals: true },
-}).key, 'statusCrystalResponseShortage');
-assert.equal(getUpgradeResponseIssue({ ...baseUpgrade, updatedPL: 10 }).key, 'statusUpgradeNoProgress');
-assert.equal(getUpgradeResponseIssue({ ...baseUpgrade, updatedPL: 21 }).key, 'statusUpgradeAboveTarget');
-assert.equal(getUpgradeResponseIssue({ ...baseUpgrade, planOk: false }).key, 'statusUpgradeUnreachable');
-assert.deepEqual(getUpgradeResponseIssue({
-  ...baseUpgrade, inventoryIssue: { key: 'statusInventoryPartial', params: { failed: 'A' } },
-}), { key: 'statusInventoryPartial', params: { failed: 'A' } });
+const executor = extractFunction('executeBatchUpgradePlan');
+for (const safetyCheck of [
+  'snapshot.stateLock', 'snapshot.insufficientCrystals', 'snapshot.insufficientChaos',
+  'errorUpgradeNoProgress', 'errorUpgradeAboveTarget', 'errorUpgradeUnreachableLive',
+  'diagnoseAmbiguousPost',
+]) assert(executor.includes(safetyCheck), `missing unified executor safety check: ${safetyCheck}`);
+assert(!source.includes('function getUpgradeResponseIssue('));
 
 const verifyCrystalOrderResponse = Function(
   `"use strict"; return (${extractFunction('verifyCrystalOrderResponse')});`
@@ -119,7 +99,7 @@ for (const removed of [
 ]) assert(!source.includes(removed), `thin/redundant function remains: ${removed}`);
 
 assert(source.includes('function syncMonsterSelection('));
-assert(source.includes('// @version      0.3.3.0'));
+assert(source.includes('// @version      0.3.5.0'));
 assert(source.split(/\r?\n/).length < 4100, 'production source should be materially compacted');
 const css = source.slice(source.indexOf('GM_addStyle(`'), source.indexOf('`);', source.indexOf('GM_addStyle(`')));
 assert(css.split(/\r?\n/).length < 170, 'CSS should use compact one-rule formatting');

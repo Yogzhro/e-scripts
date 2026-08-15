@@ -1,15 +1,18 @@
 // ==UserScript==
 // @name         E-Hentai 跨语言画廊 Tag 迁移
 // @namespace    eh-tag-transfer
-// @version      0.1.8.5
-// @description  在详情页或 E-Hentai/ExHentai 主页增量发现同作品画廊，迁移标签并纠正错误投票
-// @author       wakuwaku
+// @version      0.2.5.0
+// @description  在详情页或 E-Hentai/ExHentai 主页发现同作品画廊，迁移时随机少量省略标签、按明确标题补充 uncensored 并纠正错误投票
+// @author       reina
 // @match        https://e-hentai.org/
 // @match        https://e-hentai.org/g/*/*
 // @match        https://exhentai.org/
 // @match        https://exhentai.org/g/*/*
 // @icon         https://e-hentai.org/favicon.ico
 // @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_addValueChangeListener
 // @connect      repo.e-hentai.org
 // @noframes
 // @run-at       document-end
@@ -19,10 +22,12 @@ const DEFAULT_BLACKLIST = [
     'language:*',
     'reclass:*',
     'extraneous ads',
+    'full color',
     'full censorship',
     'mosaic censorship',
     'scanmark',
     'watermarked',
+    'other:multipanel sequence',
     'big ass',
     'x-ray',
     'rough translation',
@@ -32,13 +37,17 @@ const DEFAULT_BLACKLIST = [
     'big breasts',
     'blowjob',
     'paizuri',
-    'nakadashi'
+    'nakadashi',
+    'swimsuit'
 ].join('\n');
 
 // 直接修改这里的参数；面板和 localStorage 不会覆盖这些值。
 const SCRIPT_PARAMETERS = Object.freeze({
     mode: 'solid', // 标签范围：solid 仅迁移实线标签，all 迁移全部标签。
     transferDirection: 'newest', // 迁移方向：newest 仅旧画廊到最新画廊，all 各版本互相补全。
+    randomTagSkipEnabled: true, // 随机少迁移标签：true 每个任务随机省略部分待迁移标签。
+    randomTagSkipMin: 0, // 随机省略最少数量：允许为 0，同一任务所有目标共享结果。
+    randomTagSkipMax: 3, // 随机省略最多数量：实际至少保留一个可迁移标签。
     maxSearchPages: 1, // 搜索翻页上限：每个标题查询最多读取的结果页数。
     searchRequestIntervalMs: 3000, // 搜索请求间隔（毫秒）：不得低于站点限制的 3000 毫秒。
     maxPageDifference: 3, // 最大页数差：候选与当前画廊允许相差的页数。
@@ -47,62 +56,90 @@ const SCRIPT_PARAMETERS = Object.freeze({
     genericTitleLength: 15, // 短标题长度：不高于此长度时要求额外作者或社团证据。
     minGalleryPages: 10, // 画廊最少页数：低于此页数时跳过迁移。
     homeScanPages: 3, // 主页扫描页数：每轮最多扫描的主页列表页数。
-    homeRequestLimit: 80, // 每轮请求上限：达到上限后安全停止并保留任务。
+    homeRequestLimit: 120, // 每轮请求上限：达到上限后安全停止并保留任务。
     scheduleEnabled: true, // 周期运行：true 默认自动周期运行，false 只在页面加载时运行一次。
     scheduleMinutes: 3, // 周期（分钟）：每轮完成后等待的基础时间。
+    scheduleStartTime: '14:00', // 定时运行开始时间：浏览器本地 HH:mm；与结束时间相同表示全天。
+    scheduleEndTime: '22:00', // 定时运行结束时间：浏览器本地 HH:mm；支持跨午夜时间窗。
+    scheduleTimeJitterMinutes: 60, // 定时启停波动（分钟）：每天分别随机偏移开始与结束时间。
     badTagEnabled: true, // 检查错误标签：true 每轮检查，false 仅在手动复查时检查。
     uid: '7647802', // 用户 UID：用于读取 Repository 的错误标签记录。
     blacklist: DEFAULT_BLACKLIST // 标签黑名单：每行或逗号分隔，支持 * 通配符和 # 注释。
 });
 
-!(function () {
+function createEhTagTransferModule() {
     "use strict";
-    const SCRIPT_VERSION = "0.1.8.5",
+    // 1. 配置与运行状态
+    const SCRIPT_VERSION = "0.2.5.0",
         LOG_PREFIX = "[跨语言 Tag 迁移]",
-        UI_STATE_STORAGE_KEY = "reina.ehTagTransfer.ui.v1",
+        LEGACY_UI_STATE_STORAGE_KEY = "reina.ehTagTransfer.ui.v1",
         BAD_TAG_STATE_STORAGE_KEY = "reina.ehTagTransfer.badTags.v3",
         HOME_STATE_STORAGE_KEY = "reina.ehTagTransfer.home.v1",
         NO_RELATED_GALLERIES_REASON = "尚未找到其他语言版本",
         WORKER_LOCK_STORAGE_KEY = "reina.ehTagTransfer.workerLock.v1",
         RUN_MARKER_STORAGE_KEY = "reina.ehTagTransfer.runMarker.v1",
+        GLOBAL_PAUSE_STORAGE_KEY = "reina.ehTagTransfer.globalPause.v1",
+        VERSION_STATE_STORAGE_KEY = "reina.ehTagTransfer.version.v1",
         STYLE_ELEMENT_ID = "ehtt-style",
-        NORMAL_RUN_PHASES = Object.freeze(["tag-transfer", "bad-tags"]),
-        UI_LOG_ORDER = Object.freeze([
-            "ehtt-log",
-            "ehtt-status",
-            "ehtt-home-summary",
-            "ehtt-log-entries",
+        VISIBLE_LOG_LIMIT = 20,
+        SENSITIVE_UNCENSORED_TAG = "other:uncensored",
+        POSITIVE_CORRECTION_MARKERS = Object.freeze([
+            "uncensored",
+            "decensored",
+            "无修正",
+            "無修正",
+            "无码",
+            "無碼",
+            "去码",
+            "去碼",
+            "무수정",
         ]),
+        NEGATIVE_CORRECTION_MARKERS = Object.freeze([
+            "censored",
+            "有修正",
+            "有码",
+            "有碼",
+            "修正",
+            "モザイク",
+            "검열",
+            "모자이크",
+        ]),
+        SEARCH_PHASES = Object.freeze({
+            discovery: "发现",
+            prefilter: "预筛",
+            progressiveDetails: "渐进详情",
+            finalSelection: "最终选择",
+        }),
         BAD_TAG_OUTCOME_META = Object.freeze({
             "withdrawn-and-downvoted": {
                 level: "ok",
                 message: "已撤销赞成票并踩",
-                terminal: !0,
+                terminal: true,
             },
             downvoted: {
                 level: "ok",
                 message: "已踩",
-                terminal: !0,
+                terminal: true,
             },
             "already-downvoted": {
                 level: "skip",
                 message: "此前已经踩过",
-                terminal: !0,
+                terminal: true,
             },
             "already-missing": {
                 level: "skip",
                 message: "标签已不存在，已跳过",
-                terminal: !0,
+                terminal: true,
             },
             "gallery-unavailable": {
                 level: "skip",
                 message: "画廊已失效，已跳过",
-                terminal: !0,
+                terminal: true,
             },
             "vote-api-unavailable": {
                 level: "warn",
                 message: "页面投票接口暂不可用，将在后续周期重试",
-                terminal: !1,
+                terminal: false,
             },
         }),
         INSTANCE_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
@@ -156,10 +193,10 @@ const SCRIPT_PARAMETERS = Object.freeze({
         DEFAULT_CONFIG = SCRIPT_PARAMETERS,
         RUNTIME_LIMITS = Object.freeze({
             autoStartDelayMs: 900,
-            fetchTimeoutMs: 3e4,
+            fetchTimeoutMs: 30_000,
             fetchMaxAttempts: 3,
-            fetchRetryBaseMs: 1e3,
-            fetchRetryMaxMs: 5e3,
+            fetchRetryBaseMs: 1_000,
+            fetchRetryMaxMs: 5_000,
             directVoteVerifyDelayMs: 350,
             actionDelayMinMs: 900,
             actionDelayMaxMs: 1600,
@@ -168,31 +205,39 @@ const SCRIPT_PARAMETERS = Object.freeze({
             detailCandidatesPerLanguage: 3,
             badTagRecordsPerRun: 10,
             schedulerJitterRatio: 0.1,
-            lifecycleHeartbeatMs: 3e4,
-            workerLockMs: 12e4,
-            homeSeenLimit: 5e3,
+            lifecycleHeartbeatMs: 30_000,
+            workerLockMs: 120_000,
+            homeSeenLimit: 5_000,
         }),
         runtimeState = {
             runId: 0,
-            running: !1,
+            running: false,
             controller: null,
             autoTimer: null,
             scheduleTimer: null,
-            schedulerPaused: !1,
+            schedulerPaused: false,
             pageMode: "gallery",
             requestBudget: null,
             workerLockOwner: "",
             nextRunAt: 0,
+            scheduleWindow: null,
+            manualRun: false,
+            scheduleBoundaryReached: false,
+            loggedScheduleWindowKey: "",
             lifecycleTimer: null,
-            lifecycleSuspended: !1,
-            resumeRunAfterLifecycle: !1,
+            lifecycleSuspended: false,
+            resumeRunAfterLifecycle: false,
             waitingForRunOwner: "",
             lastSearchRequestAt: 0,
             logEntries: [],
-            logDomDirty: !1,
+            correctionLogKeys: new Set(),
+            badTagAudit: null,
+            logDomDirty: false,
+            globallyPaused: false,
             ui: null,
         },
         titleIdentityCache = new WeakMap(),
+        gallerySnapshotCache = new WeakMap(),
         creatorTagSetsCache = new WeakMap();
     function clampNumber(value, fallback, minimum, maximum) {
         const numericValue = Number(value);
@@ -203,14 +248,41 @@ const SCRIPT_PARAMETERS = Object.freeze({
     function clampInteger(value, fallback, minimum, maximum) {
         return Math.round(clampNumber(value, fallback, minimum, maximum));
     }
+    function parseScheduleMinutes(value) {
+        const match = String(value || "")
+            .trim()
+            .match(/^([01]\d|2[0-3]):([0-5]\d)$/u);
+        return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+    }
+    function normalizeScheduleTime(value, fallback) {
+        return parseScheduleMinutes(value) === null ? fallback : String(value).trim();
+    }
     function sanitizeConfig(inputConfig = {}) {
         const sanitizedUid = String(inputConfig.uid ?? "")
             .replace(/\D/g, "")
-            .slice(0, 12);
+            .slice(0, 12),
+            requestedRandomTagSkipMin = clampInteger(
+                inputConfig.randomTagSkipMin,
+                DEFAULT_CONFIG.randomTagSkipMin,
+                0,
+                1_000,
+            ),
+            requestedRandomTagSkipMax = clampInteger(
+                inputConfig.randomTagSkipMax,
+                DEFAULT_CONFIG.randomTagSkipMax,
+                0,
+                1_000,
+            );
         return {
-            mode: "all" === inputConfig.mode ? "all" : DEFAULT_CONFIG.mode,
+            mode: inputConfig.mode === "all" ? "all" : DEFAULT_CONFIG.mode,
             transferDirection:
-                "all" === inputConfig.transferDirection ? "all" : DEFAULT_CONFIG.transferDirection,
+                inputConfig.transferDirection === "all" ? "all" : DEFAULT_CONFIG.transferDirection,
+            randomTagSkipEnabled:
+                inputConfig.randomTagSkipEnabled == null
+                    ? DEFAULT_CONFIG.randomTagSkipEnabled
+                    : inputConfig.randomTagSkipEnabled === true,
+            randomTagSkipMin: Math.min(requestedRandomTagSkipMin, requestedRandomTagSkipMax),
+            randomTagSkipMax: Math.max(requestedRandomTagSkipMin, requestedRandomTagSkipMax),
             maxSearchPages: clampInteger(
                 inputConfig.maxSearchPages,
                 DEFAULT_CONFIG.maxSearchPages,
@@ -220,8 +292,8 @@ const SCRIPT_PARAMETERS = Object.freeze({
             searchRequestIntervalMs: clampInteger(
                 inputConfig.searchRequestIntervalMs,
                 DEFAULT_CONFIG.searchRequestIntervalMs,
-                3e3,
-                6e4,
+                3_000,
+                60_000,
             ),
             maxPageDifference: clampInteger(
                 inputConfig.maxPageDifference,
@@ -251,7 +323,7 @@ const SCRIPT_PARAMETERS = Object.freeze({
                 inputConfig.minGalleryPages,
                 DEFAULT_CONFIG.minGalleryPages,
                 0,
-                1e3,
+                1_000,
             ),
             homeScanPages: clampInteger(
                 inputConfig.homeScanPages,
@@ -266,22 +338,36 @@ const SCRIPT_PARAMETERS = Object.freeze({
                 200,
             ),
             scheduleEnabled:
-                null == inputConfig.scheduleEnabled
+                inputConfig.scheduleEnabled == null
                     ? DEFAULT_CONFIG.scheduleEnabled
-                    : !0 === inputConfig.scheduleEnabled,
+                    : inputConfig.scheduleEnabled === true,
             scheduleMinutes: clampInteger(
                 inputConfig.scheduleMinutes,
                 DEFAULT_CONFIG.scheduleMinutes,
                 3,
                 1440,
             ),
+            scheduleStartTime: normalizeScheduleTime(
+                inputConfig.scheduleStartTime,
+                DEFAULT_CONFIG.scheduleStartTime,
+            ),
+            scheduleEndTime: normalizeScheduleTime(
+                inputConfig.scheduleEndTime,
+                DEFAULT_CONFIG.scheduleEndTime,
+            ),
+            scheduleTimeJitterMinutes: clampInteger(
+                inputConfig.scheduleTimeJitterMinutes,
+                DEFAULT_CONFIG.scheduleTimeJitterMinutes,
+                0,
+                720,
+            ),
             badTagEnabled:
-                null == inputConfig.badTagEnabled
+                inputConfig.badTagEnabled == null
                     ? DEFAULT_CONFIG.badTagEnabled
-                    : !0 === inputConfig.badTagEnabled,
+                    : inputConfig.badTagEnabled === true,
             uid: sanitizedUid,
             blacklist:
-                "string" == typeof inputConfig.blacklist
+                typeof inputConfig.blacklist === "string"
                     ? inputConfig.blacklist
                     : DEFAULT_CONFIG.blacklist,
         };
@@ -289,11 +375,112 @@ const SCRIPT_PARAMETERS = Object.freeze({
     function resolveConfig() {
         return sanitizeConfig(SCRIPT_PARAMETERS);
     }
+    function sanitizeGlobalPauseState(value) {
+        if (value === true) return { paused: true, changedAt: 0 };
+        return {
+            paused: value?.paused === true,
+            changedAt: Math.max(0, Number(value?.changedAt) || 0),
+        };
+    }
+    function readGlobalPauseState() {
+        try {
+            return sanitizeGlobalPauseState(GM_getValue(GLOBAL_PAUSE_STORAGE_KEY, null));
+        } catch (error) {
+            console.warn(`${LOG_PREFIX} 无法读取全局停止状态`, error);
+            return sanitizeGlobalPauseState(null);
+        }
+    }
+    function writeGlobalPauseState(paused) {
+        const state = { paused: paused === true, changedAt: Date.now() };
+        try {
+            GM_setValue(GLOBAL_PAUSE_STORAGE_KEY, state);
+        } catch (error) {
+            throw new Error(`无法保存全局停止状态：${error.message}`);
+        }
+        return state;
+    }
+    function planVersionStateReset(inputState, currentVersion, origin) {
+        const version = String(currentVersion || ""),
+            normalizedOrigin = String(origin || ""),
+            previousVersion = String(inputState?.version || ""),
+            versionChanged = previousVersion !== version,
+            previousOrigins = versionChanged
+                ? []
+                : Array.from(
+                      new Set(
+                          (Array.isArray(inputState?.resetOrigins)
+                              ? inputState.resetOrigins
+                              : []
+                          ).map(String),
+                      ),
+                  ),
+            shouldResetOrigin = Boolean(
+                normalizedOrigin && !previousOrigins.includes(normalizedOrigin),
+            ),
+            resetOrigins = shouldResetOrigin
+                ? [...previousOrigins, normalizedOrigin]
+                : previousOrigins;
+        return {
+            state: { version: version, resetOrigins: resetOrigins },
+            shouldResetOrigin: shouldResetOrigin,
+            shouldClearGlobalPause: versionChanged,
+        };
+    }
+    function applyVersionStateReset() {
+        let storedState = null;
+        try {
+            storedState = GM_getValue(VERSION_STATE_STORAGE_KEY, null);
+        } catch (error) {
+            console.warn(`${LOG_PREFIX} 无法读取版本状态`, error);
+        }
+
+        const resetPlan = planVersionStateReset(
+            storedState,
+            SCRIPT_VERSION,
+            getCurrentOrigin(),
+        );
+        if (resetPlan.shouldResetOrigin) {
+            for (const storageKey of [
+                HOME_STATE_STORAGE_KEY,
+                WORKER_LOCK_STORAGE_KEY,
+                RUN_MARKER_STORAGE_KEY,
+                LEGACY_UI_STATE_STORAGE_KEY,
+            ]) {
+                localStorage.removeItem(storageKey);
+            }
+        }
+        if (resetPlan.shouldClearGlobalPause) {
+            try {
+                writeGlobalPauseState(false);
+            } catch (error) {
+                console.warn(`${LOG_PREFIX} 无法在版本更新后解除全局停止`, error);
+            }
+        }
+        try {
+            GM_setValue(VERSION_STATE_STORAGE_KEY, resetPlan.state);
+        } catch (error) {
+            console.warn(`${LOG_PREFIX} 无法保存版本状态`, error);
+        }
+        return resetPlan;
+    }
+    // 2. 持久状态、预算与跨标签页协调
     function galleryIdFromUrl(url) {
         return String(url || "").match(/\/g\/(\d+)\//)?.[1] || "";
     }
     function getCurrentOrigin(fallbackOrigin = DEFAULT_ORIGIN) {
-        return "undefined" == typeof location ? fallbackOrigin : location.origin;
+        return typeof location === "undefined" ? fallbackOrigin : location.origin;
+    }
+    function sanitizeScheduleWindow(inputWindow) {
+        const key = String(inputWindow?.key || "").slice(0, 80),
+            startAt = Math.max(0, Number(inputWindow?.startAt) || 0),
+            endAt = Math.max(0, Number(inputWindow?.endAt) || 0);
+        return key && startAt && endAt > startAt
+            ? {
+                  key: key,
+                  startAt: startAt,
+                  endAt: endAt,
+              }
+            : null;
     }
     function sanitizeHomeState(inputState = {}, origin = getCurrentOrigin()) {
         const sourceVersion = Math.max(1, Math.round(Number(inputState.version) || 1)),
@@ -311,18 +498,18 @@ const SCRIPT_PARAMETERS = Object.freeze({
                 gid = galleryIdFromUrl(url);
             if (!gid || queuedGids.has(gid)) continue;
             const lastError = normalizeWhitespace(job.lastError).slice(0, 240);
-            (sourceVersion < 2 && lastError === NO_RELATED_GALLERIES_REASON) ||
-                (queuedGids.add(gid),
-                queue.push({
-                    gid: gid,
-                    url: url,
-                    title: normalizeWhitespace(job.title),
-                    pageCount: Number.isInteger(job.pageCount) ? job.pageCount : null,
-                    discoveredAt: Math.max(0, Number(job.discoveredAt) || 0),
-                    attempts: Math.max(0, Math.round(Number(job.attempts) || 0)),
-                    nextAttemptAt: Math.max(0, Number(job.nextAttemptAt) || 0),
-                    lastError: lastError,
-                }));
+            if (sourceVersion < 2 && lastError === NO_RELATED_GALLERIES_REASON) continue;
+            queuedGids.add(gid);
+            queue.push({
+                gid: gid,
+                url: url,
+                title: normalizeWhitespace(job.title),
+                pageCount: Number.isInteger(job.pageCount) ? job.pageCount : null,
+                discoveredAt: Math.max(0, Number(job.discoveredAt) || 0),
+                attempts: Math.max(0, Math.round(Number(job.attempts) || 0)),
+                nextAttemptAt: Math.max(0, Number(job.nextAttemptAt) || 0),
+                lastError: lastError,
+            });
         }
         return {
             version: 2,
@@ -331,6 +518,7 @@ const SCRIPT_PARAMETERS = Object.freeze({
             queue: queue,
             scanCursor: String(inputState.scanCursor || ""),
             nextRunAt: Math.max(0, Number(inputState.nextRunAt) || 0),
+            scheduleWindow: sanitizeScheduleWindow(inputState.scheduleWindow),
         };
     }
     function loadHomeState() {
@@ -338,30 +526,26 @@ const SCRIPT_PARAMETERS = Object.freeze({
             const storedState =
                     JSON.parse(localStorage.getItem(HOME_STATE_STORAGE_KEY) || "null") || {},
                 sanitizedState = sanitizeHomeState(storedState);
-            if ((Number(storedState.version) || 1) < 2)
+            if ((Number(storedState.version) || 1) < 2) {
                 try {
                     localStorage.setItem(HOME_STATE_STORAGE_KEY, JSON.stringify(sanitizedState));
                 } catch (error) {
                     console.warn(`${LOG_PREFIX} 无法保存升级后的主页队列`, error);
                 }
+            }
             return sanitizedState;
         } catch (error) {
-            return console.warn(`${LOG_PREFIX} 无法读取主页队列`, error), sanitizeHomeState();
+            console.warn(`${LOG_PREFIX} 无法读取主页队列`, error);
+            return sanitizeHomeState();
         }
     }
     function saveHomeState(homeState) {
-        const sanitizedState =
-            2 === homeState?.version &&
-            Array.isArray(homeState.seenGids) &&
-            Array.isArray(homeState.queue)
-                ? homeState
-                : sanitizeHomeState(homeState);
         try {
-            localStorage.setItem(HOME_STATE_STORAGE_KEY, JSON.stringify(sanitizedState));
+            localStorage.setItem(HOME_STATE_STORAGE_KEY, JSON.stringify(homeState));
         } catch (error) {
             console.warn(`${LOG_PREFIX} 无法保存主页队列`, error);
         }
-        return updateHomeSummary(sanitizedState), sanitizedState;
+        return homeState;
     }
     function mergeHomepageResults(
         homeState,
@@ -370,80 +554,72 @@ const SCRIPT_PARAMETERS = Object.freeze({
         now = Date.now(),
         origin = getCurrentOrigin(),
     ) {
-        const normalizedHome =
-                2 === homeState?.version &&
-                Array.isArray(homeState.seenGids) &&
-                Array.isArray(homeState.queue)
-                    ? homeState
-                    : sanitizeHomeState(homeState, origin),
-            isInitialBaseline = !normalizedHome.initializedAt,
-            seenGids = new Set(normalizedHome.seenGids),
-            queuedGids = new Set(normalizedHome.queue.map((job) => job.gid)),
+        const isInitialBaseline = !homeState.initializedAt,
+            seenGids = new Set(homeState.seenGids),
+            queuedGids = new Set(homeState.queue.map((job) => job.gid)),
             queuedJobs = [];
         let skippedShort = 0;
         for (const result of results) {
             const url = canonicalGalleryUrl(result?.url, origin),
                 gid = galleryIdFromUrl(url);
-            gid &&
-                !seenGids.has(gid) &&
-                (seenGids.add(gid),
-                isInitialBaseline ||
-                    (Number.isInteger(result.pageCount) && result.pageCount < config.minGalleryPages
-                        ? skippedShort++
-                        : queuedGids.has(gid) ||
-                          (queuedGids.add(gid),
-                          queuedJobs.push({
-                              gid: gid,
-                              url: url,
-                              title: normalizeWhitespace(result.title),
-                              pageCount: Number.isInteger(result.pageCount)
-                                  ? result.pageCount
-                                  : null,
-                              discoveredAt: now,
-                              attempts: 0,
-                              nextAttemptAt: 0,
-                              lastError: "",
-                          }))));
-        }
-        return (
-            (normalizedHome.seenGids = Array.from(seenGids).slice(-RUNTIME_LIMITS.homeSeenLimit)),
-            isInitialBaseline && (normalizedHome.initializedAt = new Date(now).toISOString()),
-            normalizedHome.queue.push(...queuedJobs.reverse()),
-            {
-                home: normalizedHome,
-                initialized: isInitialBaseline,
-                baselineCount: isInitialBaseline ? results.length : 0,
-                queued: queuedJobs.length,
-                skippedShort: skippedShort,
+            if (!gid || seenGids.has(gid)) continue;
+            seenGids.add(gid);
+            if (isInitialBaseline) continue;
+            if (Number.isInteger(result.pageCount) && result.pageCount < config.minGalleryPages) {
+                skippedShort++;
+                continue;
             }
-        );
+            if (queuedGids.has(gid)) continue;
+            queuedGids.add(gid);
+            queuedJobs.push({
+                gid: gid,
+                url: url,
+                title: normalizeWhitespace(result.title),
+                pageCount: Number.isInteger(result.pageCount) ? result.pageCount : null,
+                discoveredAt: now,
+                attempts: 0,
+                nextAttemptAt: 0,
+                lastError: "",
+            });
+        }
+        homeState.seenGids = Array.from(seenGids).slice(-RUNTIME_LIMITS.homeSeenLimit);
+        if (isInitialBaseline) homeState.initializedAt = new Date(now).toISOString();
+        homeState.queue.push(...queuedJobs.reverse());
+        return {
+            home: homeState,
+            initialized: isInitialBaseline,
+            baselineCount: isInitialBaseline ? results.length : 0,
+            queued: queuedJobs.length,
+            skippedShort: skippedShort,
+        };
     }
     function findReadyHomeJob(homeState, now = Date.now()) {
         return homeState.queue.find((job) => job.nextAttemptAt <= now) || null;
     }
     function beginHomeJob(homeState, gid) {
         const job = homeState.queue.find((job) => job.gid === String(gid));
-        return job && (job.attempts++, (job.lastError = "")), homeState;
+        if (job) {
+            job.attempts++;
+            job.lastError = "";
+        }
+        return homeState;
     }
     function retryHomeJob(homeState, gid, error, now = Date.now()) {
         const job = homeState.queue.find((job) => job.gid === String(gid));
         if (!job) return homeState;
         const retryMinutes = Math.min(1440, 30 * 2 ** Math.max(0, job.attempts - 1));
-        return (
-            (job.nextAttemptAt = now + 60 * retryMinutes * 1e3),
-            (job.lastError = normalizeWhitespace(error?.message || error).slice(0, 240)),
-            homeState
-        );
+        job.nextAttemptAt = now + 60 * retryMinutes * 1_000;
+        job.lastError = normalizeWhitespace(error?.message || error).slice(0, 240);
+        return homeState;
     }
     function preserveHomeJobAfterBudget(homeState, gid) {
         const job = homeState.queue.find((job) => job.gid === String(gid));
-        return (
-            job &&
-                ((job.attempts = Math.max(0, job.attempts - 1)),
-                (job.nextAttemptAt = 0),
-                (job.lastError = "")),
-            homeState
-        );
+        if (job) {
+            job.attempts = Math.max(0, job.attempts - 1);
+            job.nextAttemptAt = 0;
+            job.lastError = "";
+        }
+        return homeState;
     }
     function completeHomeGroup(homeState, galleries) {
         const gids = Array.from(
@@ -455,20 +631,21 @@ const SCRIPT_PARAMETERS = Object.freeze({
         ).sort((leftGid, rightGid) => Number(leftGid) - Number(rightGid));
         if (!gids.length) return homeState;
         const gidSet = new Set(gids);
-        return (homeState.queue = homeState.queue.filter((job) => !gidSet.has(job.gid))), homeState;
+        homeState.queue = homeState.queue.filter((job) => !gidSet.has(job.gid));
+        return homeState;
     }
     function getHomeJobDisposition(result = {}) {
-        return "partial" === result.status
+        return result.status === "partial"
             ? {
                   action: "retry",
                   reason: `仍有 ${Math.max(0, Number(result.failed) || 0)} 个标签未确认`,
               }
             : {
                   action: "complete",
-                  reason: "no-related" === result.status ? NO_RELATED_GALLERIES_REASON : "",
+                  reason: result.status === "no-related" ? NO_RELATED_GALLERIES_REASON : "",
               };
     }
-    function selectBadTagRecords(records, state, reviewKnown = !1) {
+    function selectBadTagRecords(records, state, reviewKnown = false) {
         if (reviewKnown) return records.slice();
         const knownFingerprints = new Set(state?.knownFingerprints || []);
         return records.filter((record) => !knownFingerprints.has(badTagRecordFingerprint(record)));
@@ -476,7 +653,7 @@ const SCRIPT_PARAMETERS = Object.freeze({
     function selectBadTagBatch(
         records,
         state,
-        reviewKnown = !1,
+        reviewKnown = false,
         limit = RUNTIME_LIMITS.badTagRecordsPerRun,
     ) {
         const pendingRecords = selectBadTagRecords(records, state, reviewKnown),
@@ -505,12 +682,15 @@ const SCRIPT_PARAMETERS = Object.freeze({
             const marker = JSON.parse(localStorage.getItem(RUN_MARKER_STORAGE_KEY) || "null");
             return marker?.owner ? marker : null;
         } catch (error) {
-            return console.warn(`${LOG_PREFIX} 无法读取运行标记`, error), null;
+            console.warn(`${LOG_PREFIX} 无法读取运行标记`, error);
+            return null;
         }
     }
     function clearRunMarker(owner) {
         try {
-            loadRunMarker()?.owner === owner && localStorage.removeItem(RUN_MARKER_STORAGE_KEY);
+            if (loadRunMarker()?.owner === owner) {
+                localStorage.removeItem(RUN_MARKER_STORAGE_KEY);
+            }
         } catch (error) {
             console.warn(`${LOG_PREFIX} 无法清理运行标记`, error);
         }
@@ -523,24 +703,29 @@ const SCRIPT_PARAMETERS = Object.freeze({
         };
     }
     function setRequestBudgetReserve(budget, reserved = 0) {
-        budget &&
-            (budget.reserved = Math.min(
+        if (budget) {
+            budget.reserved = Math.min(
                 budget.limit,
                 Math.max(0, Math.round(Number(reserved) || 0)),
-            ));
+            );
+        }
     }
-    function getRequestBudgetRemaining(budget, includeReserve = !1) {
-        if (!budget) return 1 / 0;
+    function getRequestBudgetRemaining(budget, includeReserve = false) {
+        if (!budget) return Infinity;
         const usableLimit = includeReserve
             ? budget.limit
             : Math.max(0, budget.limit - budget.reserved);
         return Math.max(0, usableLimit - budget.used);
     }
+    function canStartVerifiedTagVote(budget) {
+        return getRequestBudgetRemaining(budget) >= 2;
+    }
     function consumeRequestBudget(budget, label = "网络请求") {
         if (budget) {
             if (getRequestBudgetRemaining(budget) <= 0) {
                 const error = new Error(`本轮请求上限 ${budget.limit} 已用尽（${label}）`);
-                throw ((error.name = "RequestBudgetError"), error);
+                error.name = "RequestBudgetError";
+                throw error;
             }
             budget.used++;
         }
@@ -559,21 +744,21 @@ const SCRIPT_PARAMETERS = Object.freeze({
     }
     function renewWorkerLock() {
         const owner = runtimeState.workerLockOwner;
-        if (!owner) return !1;
+        if (!owner) return false;
         function failRenewal() {
-            return runtimeState.controller?.abort(), (runtimeState.workerLockOwner = ""), !1;
+            runtimeState.controller?.abort();
+            runtimeState.workerLockOwner = "";
+            return false;
         }
         try {
             const now = Date.now();
-            return isForeignWorkerLock(loadWorkerLock(), owner, now)
-                ? failRenewal()
-                : (saveWorkerLock(owner, now), loadWorkerLock()?.owner === owner || failRenewal());
+            if (isForeignWorkerLock(loadWorkerLock(), owner, now)) return failRenewal();
+            saveWorkerLock(owner, now);
+            return loadWorkerLock()?.owner === owner || failRenewal();
         } catch (error) {
-            return (
-                console.warn(`${LOG_PREFIX} 无法刷新跨标签页运行租约`, error),
-                runtimeState.controller?.abort(),
-                !1
-            );
+            console.warn(`${LOG_PREFIX} 无法刷新跨标签页运行租约`, error);
+            runtimeState.controller?.abort();
+            return false;
         }
     }
     function releaseWorkerLock(owner = runtimeState.workerLockOwner) {
@@ -583,13 +768,14 @@ const SCRIPT_PARAMETERS = Object.freeze({
         } catch (error) {
             console.warn(`${LOG_PREFIX} 无法释放跨标签页运行租约`, error);
         } finally {
-            runtimeState.workerLockOwner === owner && (runtimeState.workerLockOwner = "");
+            if (runtimeState.workerLockOwner === owner) runtimeState.workerLockOwner = "";
         }
     }
     function consumeTrackedRequest(label) {
-        if ((consumeRequestBudget(runtimeState.requestBudget, label), !renewWorkerLock()))
-            throw createAbortError();
+        consumeRequestBudget(runtimeState.requestBudget, label);
+        if (!renewWorkerLock()) throw createAbortError();
     }
+    // 3. 标题、标签与候选纯规则
     function normalizeWhitespace(value) {
         return String(value || "")
             .replace(/\s+/g, " ")
@@ -640,72 +826,52 @@ const SCRIPT_PARAMETERS = Object.freeze({
             ),
         );
         if (match) return buildChapterSuffixResult(normalizedTitle, match, "chapter");
-        if (
-            ((match = normalizedTitle.match(
-                new RegExp(
-                    `(?:^|\\s+)((?:vol(?:ume)?s?)\\.?\\s*#?(${numberPattern})(?:\\s*${rangePattern}\\s*#?(${numberPattern}))?)\\s*$`,
-                    "iu",
-                ),
-            )),
-            match)
-        )
-            return buildChapterSuffixResult(normalizedTitle, match, "volume");
-        if (
-            ((match = normalizedTitle.match(
-                new RegExp(
-                    `(?:^|\\s+)((?:part|pt)\\.?\\s*#?(${numberPattern})(?:\\s*${rangePattern}\\s*#?(${numberPattern}))?)\\s*$`,
-                    "iu",
-                ),
-            )),
-            match)
-        )
-            return buildChapterSuffixResult(normalizedTitle, match, "part");
-        if (
-            ((match = normalizedTitle.match(
-                new RegExp(
-                    `\\s*((?:第\\s*)?(${numberPattern})(?:\\s*${rangePattern}\\s*(${numberPattern}))?\\s*([話话章回集]))\\s*$`,
-                    "iu",
-                ),
-            )),
-            match)
-        )
-            return buildChapterSuffixResult(normalizedTitle, match, "chapter");
-        if (
-            ((match = normalizedTitle.match(
-                new RegExp(
-                    `\\s*((?:第\\s*)?(${numberPattern})(?:\\s*${rangePattern}\\s*(${numberPattern}))?\\s*[巻卷])\\s*$`,
-                    "iu",
-                ),
-            )),
-            match)
-        )
-            return buildChapterSuffixResult(normalizedTitle, match, "volume");
-        if (
-            ((match = normalizedTitle.match(
-                new RegExp(
-                    `\\s*((?:第\\s*)?(${numberPattern})(?:\\s*${rangePattern}\\s*(${numberPattern}))?\\s*部)\\s*$`,
-                    "iu",
-                ),
-            )),
-            match)
-        )
-            return buildChapterSuffixResult(normalizedTitle, match, "part");
-        if (
-            ((match = normalizedTitle.match(
-                new RegExp(
-                    `\\s*((?:제\\s*)?(${numberPattern})(?:\\s*${rangePattern}\\s*(${numberPattern}))?\\s*화)\\s*$`,
-                    "iu",
-                ),
-            )),
-            match)
-        )
-            return buildChapterSuffixResult(normalizedTitle, match, "chapter");
-        if (
-            ((match = normalizedTitle.match(
-                /(?:^|\s+)((prologue|epilogue|interlude|extra|special|bonus|omake)(?:\s*#?\s*(\d{1,3}))?)\s*$/iu,
-            )),
-            match)
-        ) {
+        match = normalizedTitle.match(
+            new RegExp(
+                `(?:^|\\s+)((?:vol(?:ume)?s?)\\.?\\s*#?(${numberPattern})(?:\\s*${rangePattern}\\s*#?(${numberPattern}))?)\\s*$`,
+                "iu",
+            ),
+        );
+        if (match) return buildChapterSuffixResult(normalizedTitle, match, "volume");
+        match = normalizedTitle.match(
+            new RegExp(
+                `(?:^|\\s+)((?:part|pt)\\.?\\s*#?(${numberPattern})(?:\\s*${rangePattern}\\s*#?(${numberPattern}))?)\\s*$`,
+                "iu",
+            ),
+        );
+        if (match) return buildChapterSuffixResult(normalizedTitle, match, "part");
+        match = normalizedTitle.match(
+            new RegExp(
+                `\\s*((?:第\\s*)?(${numberPattern})(?:\\s*${rangePattern}\\s*(${numberPattern}))?\\s*([話话章回集]))\\s*$`,
+                "iu",
+            ),
+        );
+        if (match) return buildChapterSuffixResult(normalizedTitle, match, "chapter");
+        match = normalizedTitle.match(
+            new RegExp(
+                `\\s*((?:第\\s*)?(${numberPattern})(?:\\s*${rangePattern}\\s*(${numberPattern}))?\\s*[巻卷])\\s*$`,
+                "iu",
+            ),
+        );
+        if (match) return buildChapterSuffixResult(normalizedTitle, match, "volume");
+        match = normalizedTitle.match(
+            new RegExp(
+                `\\s*((?:第\\s*)?(${numberPattern})(?:\\s*${rangePattern}\\s*(${numberPattern}))?\\s*部)\\s*$`,
+                "iu",
+            ),
+        );
+        if (match) return buildChapterSuffixResult(normalizedTitle, match, "part");
+        match = normalizedTitle.match(
+            new RegExp(
+                `\\s*((?:제\\s*)?(${numberPattern})(?:\\s*${rangePattern}\\s*(${numberPattern}))?\\s*화)\\s*$`,
+                "iu",
+            ),
+        );
+        if (match) return buildChapterSuffixResult(normalizedTitle, match, "chapter");
+        match = normalizedTitle.match(
+            /(?:^|\s+)((prologue|epilogue|interlude|extra|special|bonus|omake)(?:\s*#?\s*(\d{1,3}))?)\s*$/iu,
+        );
+        if (match) {
             const specialName = normalizeComparableText(match[2]).replace(/\s+/g, "-"),
                 numberSuffix = match[3] ? `-${normalizeChapterNumber(match[3])}` : "";
             return {
@@ -719,9 +885,8 @@ const SCRIPT_PARAMETERS = Object.freeze({
                 },
             };
         }
-        if (
-            ((match = normalizedTitle.match(/\s*((?:前|中|後|后)[編篇]|[上下][巻卷])\s*$/u)), match)
-        ) {
+        match = normalizedTitle.match(/\s*((?:前|中|後|后)[編篇]|[上下][巻卷])\s*$/u);
+        if (match) {
             const partName = normalizeComparableText(match[1]);
             return {
                 baseTitle: normalizedTitle.slice(0, match.index).trim(),
@@ -741,39 +906,62 @@ const SCRIPT_PARAMETERS = Object.freeze({
             availableLength = Math.max(1, maxLength - suffix.length);
         return normalizeWhitespace(`${baseTitle.slice(0, availableLength)}${suffix}`);
     }
+    function isTitleMetadataPrefix(prefix) {
+        const normalizedPrefix = normalizeComparableText(prefix);
+        return (
+            !normalizedPrefix ||
+            LANGUAGE_TAG_NAMES.some((languageName) => normalizedPrefix === languageName) ||
+            [
+                "anthology",
+                "digital",
+                "dl版",
+                "translated",
+                "decensored",
+                "uncensored",
+                "colorized",
+                "full color",
+                "rewrite",
+                "speechless",
+                "text cleaned",
+                "sample",
+            ].includes(normalizedPrefix)
+        );
+    }
     function parseTitlePart(title) {
         let remainingTitle = normalizeWhitespace(title),
             chapter = null,
             parody = "",
-            changed = !0;
+            changed = true;
         for (; remainingTitle && changed; ) {
-            changed = !1;
+            changed = false;
             const bracketMatch = remainingTitle.match(/\s*[\[【]([^\]】]+)[\]】]\s*$/u);
             if (bracketMatch) {
-                (remainingTitle = remainingTitle.slice(0, bracketMatch.index).trim()),
-                    (changed = !0);
+                remainingTitle = remainingTitle.slice(0, bracketMatch.index).trim();
+                changed = true;
                 continue;
             }
             if (!chapter) {
                 const chapterSuffix = extractChapterSuffix(remainingTitle);
                 if (chapterSuffix) {
-                    (chapter = chapterSuffix.chapter),
-                        (remainingTitle = chapterSuffix.baseTitle),
-                        (changed = !0);
+                    chapter = chapterSuffix.chapter;
+                    remainingTitle = chapterSuffix.baseTitle;
+                    changed = true;
                     continue;
                 }
             }
             const parentheticalMatch = remainingTitle.match(/\s*[\(（]([^\)）]+)[\)）]\s*$/u);
             if (parentheticalMatch) {
-                if (chapter) parody || (parody = normalizeWhitespace(parentheticalMatch[1]));
+                if (chapter && !parody) parody = normalizeWhitespace(parentheticalMatch[1]);
                 else {
                     const parentheticalChapter = extractChapterSuffix(` ${parentheticalMatch[1]}`);
-                    parentheticalChapter?.chapter && !parentheticalChapter.baseTitle
-                        ? (chapter = parentheticalChapter.chapter)
-                        : parody || (parody = normalizeWhitespace(parentheticalMatch[1]));
+                    if (parentheticalChapter?.chapter && !parentheticalChapter.baseTitle) {
+                        chapter = parentheticalChapter.chapter;
+                    } else if (!parody) {
+                        parody = normalizeWhitespace(parentheticalMatch[1]);
+                    }
                 }
-                (remainingTitle = remainingTitle.slice(0, parentheticalMatch.index).trim()),
-                    (changed = !0);
+                remainingTitle = remainingTitle.slice(0, parentheticalMatch.index).trim();
+                changed = true;
             }
         }
         const baseTitle = normalizeWhitespace(remainingTitle);
@@ -787,33 +975,15 @@ const SCRIPT_PARAMETERS = Object.freeze({
     function parseTitleIdentity(title) {
         let remainingTitle = normalizeWhitespace(String(title || "").normalize("NFKC"));
         const eventPrefixMatch = remainingTitle.match(/^[\(（]([^\)）]+)[\)）]\s*/u);
-        eventPrefixMatch && (remainingTitle = remainingTitle.slice(eventPrefixMatch[0].length));
+        if (eventPrefixMatch) remainingTitle = remainingTitle.slice(eventPrefixMatch[0].length);
         let creatorPrefix = "";
         const creatorPrefixMatch = remainingTitle.match(/^[\[【]([^\]】]+)[\]】]\s*/u);
-        creatorPrefixMatch &&
-            ((function (prefix) {
-                const normalizedPrefix = normalizeComparableText(prefix);
-                return (
-                    !normalizedPrefix ||
-                    LANGUAGE_TAG_NAMES.some((languageName) => normalizedPrefix === languageName) ||
-                    [
-                        "anthology",
-                        "digital",
-                        "dl版",
-                        "translated",
-                        "decensored",
-                        "uncensored",
-                        "colorized",
-                        "full color",
-                        "rewrite",
-                        "speechless",
-                        "text cleaned",
-                        "sample",
-                    ].includes(normalizedPrefix)
-                );
-            })(creatorPrefixMatch[1]) ||
-                (creatorPrefix = normalizeWhitespace(creatorPrefixMatch[1])),
-            (remainingTitle = remainingTitle.slice(creatorPrefixMatch[0].length)));
+        if (creatorPrefixMatch) {
+            if (!isTitleMetadataPrefix(creatorPrefixMatch[1])) {
+                creatorPrefix = normalizeWhitespace(creatorPrefixMatch[1]);
+            }
+            remainingTitle = remainingTitle.slice(creatorPrefixMatch[0].length);
+        }
         const coreParts = [],
             searchParts = [],
             chapters = [],
@@ -821,34 +991,46 @@ const SCRIPT_PARAMETERS = Object.freeze({
         for (const titlePart of remainingTitle.split("|")) {
             const parsedPart = parseTitlePart(titlePart),
                 normalizedPart = normalizeComparableTitle(parsedPart.baseTitle);
-            normalizedPart &&
-                !coreParts.some(
-                    (existingTitle) => normalizeComparableTitle(existingTitle) === normalizedPart,
-                ) &&
-                (coreParts.push(parsedPart.baseTitle),
-                searchParts.push(parsedPart.searchTitle),
+            const isDuplicateTitle = coreParts.some(
+                (existingTitle) => normalizeComparableTitle(existingTitle) === normalizedPart,
+            );
+            if (!normalizedPart || isDuplicateTitle) continue;
+            coreParts.push(parsedPart.baseTitle);
+            searchParts.push(parsedPart.searchTitle);
+            if (
                 parsedPart.chapter &&
-                    !chapters.some(
-                        (existingChapter) => existingChapter.key === parsedPart.chapter.key,
-                    ) &&
-                    chapters.push(parsedPart.chapter),
-                parsedPart.parody &&
-                    !parodies.includes(parsedPart.parody) &&
-                    parodies.push(parsedPart.parody));
-        }
-        const creatorTokens = new Set();
-        if (creatorPrefix)
-            for (const token of creatorPrefix.match(/[\p{L}\p{N}]+/gu) || []) {
-                const normalizedToken = normalizeComparableText(token);
-                normalizedToken.length >= 2 && creatorTokens.add(normalizedToken);
+                !chapters.some((existingChapter) => existingChapter.key === parsedPart.chapter.key)
+            ) {
+                chapters.push(parsedPart.chapter);
             }
+            if (parsedPart.parody && !parodies.includes(parsedPart.parody)) {
+                parodies.push(parsedPart.parody);
+            }
+        }
+        const normalizedCreatorPrefix = normalizeComparableText(creatorPrefix),
+            creatorTokens = new Set();
+        if (normalizedCreatorPrefix)
+            for (const token of normalizedCreatorPrefix.match(/[\p{L}\p{N}]+/gu) || []) {
+                const normalizedToken = normalizeComparableText(token);
+                if (normalizedToken.length >= 2) creatorTokens.add(normalizedToken);
+            }
+        if (normalizedCreatorPrefix && !creatorTokens.size) {
+            creatorTokens.add(normalizedCreatorPrefix);
+        }
         return {
             parody: parodies[0] || "",
             parodies: parodies,
             coreParts: coreParts,
             searchParts: searchParts,
             chapters: chapters,
+            creatorPrefix: normalizedCreatorPrefix,
             creatorTokens: creatorTokens,
+            coreNumbers: new Set(
+                coreParts
+                    .flatMap((part) => normalizeComparableTitle(part).split(" "))
+                    .filter((token) => /^\d{1,4}$/u.test(token))
+                    .map(normalizeChapterNumber),
+            ),
         };
     }
     function normalizeComparableTitle(title) {
@@ -890,7 +1072,9 @@ const SCRIPT_PARAMETERS = Object.freeze({
     }
     function countSetOverlap(leftSet, rightSet) {
         let count = 0;
-        for (const value of leftSet) rightSet.has(value) && count++;
+        for (const value of leftSet) {
+            if (rightSet.has(value)) count++;
+        }
         return count;
     }
     function analyzeTitleSet(titleRefs) {
@@ -911,6 +1095,12 @@ const SCRIPT_PARAMETERS = Object.freeze({
                 creatorTokens: new Set(
                     identities.flatMap((identity) => Array.from(identity.creatorTokens)),
                 ),
+                creatorPrefixes: new Set(
+                    identities.map((identity) => identity.creatorPrefix).filter(Boolean),
+                ),
+                coreNumbers: new Set(
+                    identities.flatMap((identity) => Array.from(identity.coreNumbers)),
+                ),
                 parodies: new Set(
                     identities
                         .flatMap((identity) => identity.parodies)
@@ -925,19 +1115,21 @@ const SCRIPT_PARAMETERS = Object.freeze({
                     ).values(),
                 ),
             };
-        return cacheKey && titleIdentityCache.set(cacheKey, analysis), analysis;
+        if (cacheKey) titleIdentityCache.set(cacheKey, analysis);
+        return analysis;
     }
     function findClosestTitlePair(leftIdentity, rightIdentity) {
-        let bestRatio = 1 / 0,
+        let bestRatio = Infinity,
             leftTitle = "",
             rightTitle = "";
         for (const leftTitlePart of leftIdentity.coreParts)
             for (const rightTitlePart of rightIdentity.coreParts) {
                 const ratio = titleDistanceRatio(leftTitlePart, rightTitlePart);
-                ratio < bestRatio &&
-                    ((bestRatio = ratio),
-                    (leftTitle = leftTitlePart),
-                    (rightTitle = rightTitlePart));
+                if (ratio < bestRatio) {
+                    bestRatio = ratio;
+                    leftTitle = leftTitlePart;
+                    rightTitle = rightTitlePart;
+                }
             }
         return {
             ratio: bestRatio,
@@ -946,12 +1138,12 @@ const SCRIPT_PARAMETERS = Object.freeze({
         };
     }
     function getTitleFieldLabel(index) {
-        return 0 === index ? "主标题" : 1 === index ? "日文标题" : `标题 ${index + 1}`;
+        return index === 0 ? "主标题" : index === 1 ? "日文标题" : `标题 ${index + 1}`;
     }
     function compareChapterSets(currentIdentity, candidateIdentity) {
         if (!currentIdentity.chapters.length || !candidateIdentity.chapters.length)
             return {
-                accepted: !0,
+                accepted: true,
                 relation: "unknown",
                 score: 0,
                 reason: "",
@@ -962,15 +1154,15 @@ const SCRIPT_PARAMETERS = Object.freeze({
             );
         return matchingChapter
             ? {
-                  accepted: !0,
+                  accepted: true,
                   relation: "match",
                   score: 8,
                   reason: `章节一致（${matchingChapter.raw}）`,
               }
             : {
-                  accepted: !1,
+                  accepted: false,
                   relation: "conflict",
-                  score: -1 / 0,
+                  score: -Infinity,
                   reason: `章节不同（${currentIdentity.chapters.map((chapter) => chapter.raw).join("/")} / ${candidateIdentity.chapters.map((chapter) => chapter.raw).join("/")}）`,
               };
     }
@@ -985,8 +1177,8 @@ const SCRIPT_PARAMETERS = Object.freeze({
                   reason: "",
               };
     }
-    function creatorTagSets(gallery, solidOnly = !1) {
-        const cacheKey = gallery && "object" == typeof gallery ? gallery : null,
+    function creatorTagSets(gallery, solidOnly = false) {
+        const cacheKey = gallery && typeof gallery === "object" ? gallery : null,
             cacheSlot = solidOnly ? "solid" : "all",
             cached = cacheKey ? creatorTagSetsCache.get(cacheKey)?.[cacheSlot] : null;
         if (cached) return cached;
@@ -995,18 +1187,21 @@ const SCRIPT_PARAMETERS = Object.freeze({
             artist: new Set(),
         };
         for (const tagEntry of gallery?.tags || []) {
-            if (solidOnly && "object" == typeof tagEntry && !tagEntry.solid) continue;
+            if (solidOnly && typeof tagEntry === "object" && !tagEntry.solid) continue;
             const normalizedTag = normalizeTag(
-                    "string" == typeof tagEntry ? tagEntry : tagEntry?.tag,
+                    typeof tagEntry === "string" ? tagEntry : tagEntry?.tag,
                 ),
                 colonIndex = normalizedTag.indexOf(":");
             if (colonIndex < 1) continue;
             const namespace = normalizedTag.slice(0, colonIndex);
-            namespace in tagSets && tagSets[namespace].add(normalizedTag.slice(colonIndex + 1));
+            if (namespace in tagSets) {
+                tagSets[namespace].add(normalizedTag.slice(colonIndex + 1));
+            }
         }
         if (cacheKey) {
             const cacheRecord = creatorTagSetsCache.get(cacheKey) || {};
-            (cacheRecord[cacheSlot] = tagSets), creatorTagSetsCache.set(cacheKey, cacheRecord);
+            cacheRecord[cacheSlot] = tagSets;
+            creatorTagSetsCache.set(cacheKey, cacheRecord);
         }
         return tagSets;
     }
@@ -1015,24 +1210,51 @@ const SCRIPT_PARAMETERS = Object.freeze({
             candidateIdentity = analyzeTitleSet(candidateTitles);
         if (!currentIdentity.coreParts.length || !candidateIdentity.coreParts.length)
             return {
-                accepted: !1,
+                accepted: false,
                 ratio: 1,
                 creatorOverlap: 0,
                 reason: "标题缺失",
             };
+        const creatorOverlap = countSetOverlap(
+            currentIdentity.creatorTokens,
+            candidateIdentity.creatorTokens,
+        );
+        if (
+            currentIdentity.creatorPrefixes.size &&
+            candidateIdentity.creatorPrefixes.size &&
+            !creatorOverlap
+        )
+            return {
+                accepted: false,
+                ratio: 1,
+                creatorOverlap: 0,
+                reason: "标题署名冲突",
+            };
+        if (
+            (currentIdentity.coreNumbers.size || candidateIdentity.coreNumbers.size) &&
+            (currentIdentity.coreNumbers.size !== candidateIdentity.coreNumbers.size ||
+                countSetOverlap(currentIdentity.coreNumbers, candidateIdentity.coreNumbers) !==
+                    currentIdentity.coreNumbers.size)
+        )
+            return {
+                accepted: false,
+                ratio: 1,
+                creatorOverlap: creatorOverlap,
+                reason: `作品编号冲突（${Array.from(currentIdentity.coreNumbers).join("/") || "无"} / ${Array.from(candidateIdentity.coreNumbers).join("/") || "无"}）`,
+            };
         let closestPair = {
-            ratio: 1 / 0,
+            ratio: Infinity,
             leftTitle: "",
             rightTitle: "",
         };
         for (const currentTitleIdentity of currentIdentity.identities)
             for (const candidateTitleIdentity of candidateIdentity.identities) {
                 const match = findClosestTitlePair(currentTitleIdentity, candidateTitleIdentity);
-                match.ratio < closestPair.ratio && (closestPair = match);
+                if (match.ratio < closestPair.ratio) closestPair = match;
             }
         if (closestPair.ratio > config.maxTitleDistanceRatio)
             return {
-                accepted: !1,
+                accepted: false,
                 ratio: closestPair.ratio,
                 creatorOverlap: 0,
                 reason: `标题距离 ${(100 * closestPair.ratio).toFixed(1)}% 超过阈值`,
@@ -1056,10 +1278,6 @@ const SCRIPT_PARAMETERS = Object.freeze({
                 normalizeComparableTitle(closestPair.leftTitle).length,
                 normalizeComparableTitle(closestPair.rightTitle).length,
             ),
-            creatorOverlap = countSetOverlap(
-                currentIdentity.creatorTokens,
-                candidateIdentity.creatorTokens,
-            ),
             reason =
                 acceptedMatches.length > 0
                     ? acceptedMatches
@@ -1067,7 +1285,7 @@ const SCRIPT_PARAMETERS = Object.freeze({
                           .join("，")
                     : `跨字段标题 ${(100 * closestPair.ratio).toFixed(1)}%`;
         return {
-            accepted: !0,
+            accepted: true,
             ratio: closestPair.ratio,
             creatorOverlap: creatorOverlap,
             coreLength: coreLength,
@@ -1125,7 +1343,7 @@ const SCRIPT_PARAMETERS = Object.freeze({
                 .toLowerCase(),
         );
         if (!normalized) return "";
-        normalized.includes(":") || (normalized = `misc:${normalized}`);
+        if (!normalized.includes(":")) normalized = `misc:${normalized}`;
         const colonIndex = normalized.indexOf(":"),
             namespace = normalizeWhitespace(normalized.slice(0, colonIndex)),
             name = normalizeWhitespace(normalized.slice(colonIndex + 1));
@@ -1161,6 +1379,7 @@ const SCRIPT_PARAMETERS = Object.freeze({
                     tag: tag,
                     solid: tagRow.classList.contains("gt"),
                     voted: anchor.classList.contains("tup"),
+                    downvoted: anchor.classList.contains("tdn"),
                 });
         }
         return tags;
@@ -1183,7 +1402,7 @@ const SCRIPT_PARAMETERS = Object.freeze({
     }
     function getExplicitLanguage(tags) {
         const normalizedTags = (tags || [])
-            .map((tag) => normalizeTag("string" == typeof tag ? tag : tag?.tag))
+            .map((tag) => normalizeTag(typeof tag === "string" ? tag : tag?.tag))
             .filter(Boolean);
         for (const languageName of LANGUAGE_TAG_NAMES)
             if (normalizedTags.includes(`language:${languageName}`)) return languageName;
@@ -1222,29 +1441,29 @@ const SCRIPT_PARAMETERS = Object.freeze({
             explicitLanguage: explicitLanguage,
         };
     }
+    function compareGalleryRecency(leftGallery, rightGallery) {
+        if (Number.isFinite(leftGallery?.postedAt) && Number.isFinite(rightGallery?.postedAt)) {
+            const postedDifference = leftGallery.postedAt - rightGallery.postedAt;
+            if (postedDifference) return postedDifference;
+        }
+        const gidDifference =
+            Number(galleryIdFromUrl(leftGallery?.url)) -
+            Number(galleryIdFromUrl(rightGallery?.url));
+        if (Number.isFinite(gidDifference) && gidDifference) return gidDifference;
+        return String(leftGallery?.url || "").localeCompare(String(rightGallery?.url || ""));
+    }
     function selectNewestGallery(galleries) {
-        return (galleries || []).reduce(
-            (selected, gallery) =>
-                !selected ||
-                (function (left, right) {
-                    if (Number.isFinite(left?.postedAt) && Number.isFinite(right?.postedAt)) {
-                        const dateDifference = left.postedAt - right.postedAt;
-                        if (dateDifference) return dateDifference;
-                    }
-                    const dateDifference =
-                        Number(galleryIdFromUrl(left?.url)) - Number(galleryIdFromUrl(right?.url));
-                    return Number.isFinite(dateDifference) && dateDifference
-                        ? dateDifference
-                        : String(left?.url || "").localeCompare(String(right?.url || ""));
-                })(gallery, selected) > 0
-                    ? gallery
-                    : selected,
-            null,
-        );
+        let newestGallery = null;
+        for (const gallery of galleries || []) {
+            if (!newestGallery || compareGalleryRecency(gallery, newestGallery) > 0) {
+                newestGallery = gallery;
+            }
+        }
+        return newestGallery;
     }
     function buildTransferPlan(galleries, direction = "all") {
         const galleryList = Array.from(galleries || []);
-        if ("newest" !== direction)
+        if (direction !== "newest")
             return {
                 sources: galleryList,
                 targets: galleryList,
@@ -1278,31 +1497,31 @@ const SCRIPT_PARAMETERS = Object.freeze({
             !Number.isInteger(candidateGallery.pageCount)
         )
             return {
-                accepted: !1,
+                accepted: false,
                 reason: "页数缺失",
                 pageDifference: null,
                 ratio: 1,
-                score: -1 / 0,
+                score: -Infinity,
             };
         if (
             currentGallery.pageCount < config.minGalleryPages ||
             candidateGallery.pageCount < config.minGalleryPages
         )
             return {
-                accepted: !1,
+                accepted: false,
                 reason: `页数少于 ${config.minGalleryPages}`,
                 pageDifference: Math.abs(currentGallery.pageCount - candidateGallery.pageCount),
                 ratio: 1,
-                score: -1 / 0,
+                score: -Infinity,
             };
         const pageDifference = Math.abs(currentGallery.pageCount - candidateGallery.pageCount);
         if (pageDifference > config.maxPageDifference)
             return {
-                accepted: !1,
+                accepted: false,
                 reason: `页数相差 ${pageDifference}，超过 ${config.maxPageDifference}`,
                 pageDifference: pageDifference,
                 ratio: 1,
-                score: -1 / 0,
+                score: -Infinity,
             };
         const titleAssessment = compareTitleSets(
             currentGallery.titleRefs,
@@ -1313,7 +1532,7 @@ const SCRIPT_PARAMETERS = Object.freeze({
             return {
                 ...titleAssessment,
                 pageDifference: pageDifference,
-                score: -1 / 0,
+                score: -Infinity,
             };
         const chapterAssessment = compareChapterSets(
             titleAssessment.currentIdentity,
@@ -1321,15 +1540,15 @@ const SCRIPT_PARAMETERS = Object.freeze({
         );
         if (!chapterAssessment.accepted)
             return {
-                accepted: !1,
+                accepted: false,
                 reason: chapterAssessment.reason,
                 pageDifference: pageDifference,
                 ratio: titleAssessment.ratio,
                 chapterRelation: chapterAssessment.relation,
-                score: -1 / 0,
+                score: -Infinity,
             };
-        const currentCreators = creatorTagSets(currentGallery, !0),
-            candidateCreators = creatorTagSets(candidateGallery, !0),
+        const currentCreators = creatorTagSets(currentGallery, true),
+            candidateCreators = creatorTagSets(candidateGallery, true),
             groupOverlap = countSetOverlap(currentCreators.group, candidateCreators.group),
             artistOverlap = countSetOverlap(currentCreators.artist, candidateCreators.artist),
             creatorTagOverlap = groupOverlap + artistOverlap;
@@ -1337,38 +1556,49 @@ const SCRIPT_PARAMETERS = Object.freeze({
             if (
                 currentCreators[namespace].size > 0 &&
                 candidateCreators[namespace].size > 0 &&
-                0 === countSetOverlap(currentCreators[namespace], candidateCreators[namespace]) &&
-                0 === titleAssessment.creatorOverlap
+                countSetOverlap(currentCreators[namespace], candidateCreators[namespace]) === 0 &&
+                titleAssessment.creatorOverlap === 0
             )
                 return {
-                    accepted: !1,
-                    reason: ("group" === namespace ? "社团" : "作者") + "标签冲突",
+                    accepted: false,
+                    reason: (namespace === "group" ? "社团" : "作者") + "标签冲突",
                     pageDifference: pageDifference,
                     ratio: titleAssessment.ratio,
                     creatorOverlap: 0,
-                    score: -1 / 0,
+                    score: -Infinity,
                 };
-        const hasCreatorEvidence =
-            currentCreators.group.size +
-                currentCreators.artist.size +
-                titleAssessment.currentIdentity.creatorTokens.size >
-            0;
         if (
             titleAssessment.coreLength <= config.genericTitleLength &&
-            hasCreatorEvidence &&
             creatorTagOverlap + titleAssessment.creatorOverlap === 0
         )
             return {
-                accepted: !1,
+                accepted: false,
                 reason: "短标题缺少相同作者或社团证据",
                 pageDifference: pageDifference,
                 ratio: titleAssessment.ratio,
                 creatorOverlap: 0,
-                score: -1 / 0,
+                score: -Infinity,
+            };
+        const contextAssessment = compareTitleContext(
+                titleAssessment.currentIdentity,
+                titleAssessment.candidateIdentity,
+            ),
+            hasIndependentIdentityEvidence =
+                creatorTagOverlap + titleAssessment.creatorOverlap > 0 ||
+                chapterAssessment.relation === "match" ||
+                contextAssessment.score > 0;
+        if (titleAssessment.ratio > 0 && !hasIndependentIdentityEvidence)
+            return {
+                accepted: false,
+                reason: "非完全一致标题缺少独立身份依据",
+                pageDifference: pageDifference,
+                ratio: titleAssessment.ratio,
+                creatorOverlap: 0,
+                score: -Infinity,
             };
         const titleThreshold = Math.max(config.maxTitleDistanceRatio, 0.001),
             pageScore =
-                0 === config.maxPageDifference
+                config.maxPageDifference === 0
                     ? 20
                     : 20 * Math.max(0, 1 - pageDifference / config.maxPageDifference),
             extraTitleScore = titleAssessment.fieldMatches
@@ -1378,11 +1608,7 @@ const SCRIPT_PARAMETERS = Object.freeze({
                 .reduce(
                     (total, match) => total + 10 * Math.max(0, 1 - match.ratio / titleThreshold),
                     0,
-                ),
-            contextAssessment = compareTitleContext(
-                titleAssessment.currentIdentity,
-                titleAssessment.candidateIdentity,
-            );
+                );
         let score =
             50 * Math.max(0, 1 - titleAssessment.ratio / titleThreshold) +
             extraTitleScore +
@@ -1392,62 +1618,62 @@ const SCRIPT_PARAMETERS = Object.freeze({
             Math.min(8, 2 * titleAssessment.creatorOverlap) +
             chapterAssessment.score +
             contextAssessment.score;
-        return (
-            (score += Math.min(4, candidateGallery.matchedQueries?.length || 0)),
-            (score = Math.round(10 * score) / 10),
-            {
-                accepted: !0,
-                reason: [
-                    titleAssessment.reason,
-                    chapterAssessment.reason,
-                    contextAssessment.reason,
-                    `页差 ${pageDifference}`,
-                    `评分 ${score}`,
-                ]
-                    .filter(Boolean)
-                    .join("，"),
-                pageDifference: pageDifference,
-                ratio: titleAssessment.ratio,
-                matchedTitleFields: titleAssessment.fieldMatches
-                    .filter((match) => match.accepted)
-                    .map((match) => match.field),
-                chapterRelation: chapterAssessment.relation,
-                creatorOverlap: creatorTagOverlap + titleAssessment.creatorOverlap,
-                groupOverlap: groupOverlap,
-                artistOverlap: artistOverlap,
-                score: score,
-            }
-        );
+        score += Math.min(4, candidateGallery.matchedQueries?.length || 0);
+        score = Math.round(10 * score) / 10;
+        return {
+            accepted: true,
+            reason: [
+                titleAssessment.reason,
+                chapterAssessment.reason,
+                contextAssessment.reason,
+                `页差 ${pageDifference}`,
+                `评分 ${score}`,
+            ]
+                .filter(Boolean)
+                .join("，"),
+            pageDifference: pageDifference,
+            ratio: titleAssessment.ratio,
+            matchedTitleFields: titleAssessment.fieldMatches
+                .filter((match) => match.accepted)
+                .map((match) => match.field),
+            chapterRelation: chapterAssessment.relation,
+            creatorOverlap: creatorTagOverlap + titleAssessment.creatorOverlap,
+            groupOverlap: groupOverlap,
+            artistOverlap: artistOverlap,
+            score: score,
+        };
     }
     function selectBestLanguageCandidates(candidates, minimumScoreGap) {
         const byLanguage = new Map(),
             rejected = [];
-        for (const candidate of candidates)
-            candidate.language && "unknown" !== candidate.language
-                ? (byLanguage.has(candidate.language) || byLanguage.set(candidate.language, []),
-                  byLanguage.get(candidate.language).push(candidate))
-                : rejected.push({
-                      ...candidate,
-                      rejectionReason: "无法确认语言",
-                  });
+        for (const candidate of candidates) {
+            if (candidate.language && candidate.language !== "unknown") {
+                if (!byLanguage.has(candidate.language)) byLanguage.set(candidate.language, []);
+                byLanguage.get(candidate.language).push(candidate);
+            } else {
+                rejected.push({
+                    ...candidate,
+                    rejectionReason: "无法确认语言",
+                });
+            }
+        }
         const accepted = [];
         for (const [language, languageCandidates] of byLanguage) {
-            if (
-                (languageCandidates.sort(
-                    (left, right) =>
-                        (right.assessment?.score ?? -1 / 0) - (left.assessment?.score ?? -1 / 0) ||
-                        (left.assessment?.pageDifference ?? 1 / 0) -
-                            (right.assessment?.pageDifference ?? 1 / 0) ||
-                        String(left.url).localeCompare(String(right.url)),
-                ),
-                1 === languageCandidates.length)
-            ) {
+            languageCandidates.sort(
+                (left, right) =>
+                    (right.assessment?.score ?? -Infinity) -
+                        (left.assessment?.score ?? -Infinity) ||
+                    (left.assessment?.pageDifference ?? Infinity) -
+                        (right.assessment?.pageDifference ?? Infinity) ||
+                    String(left.url).localeCompare(String(right.url)),
+            );
+            if (languageCandidates.length === 1) {
                 accepted.push(languageCandidates[0]);
                 continue;
             }
             const scoreGap =
-                (languageCandidates[0].assessment?.score ?? -1 / 0) -
-                (languageCandidates[1].assessment?.score ?? -1 / 0);
+                (languageCandidates[0].assessment?.score ?? -Infinity) -
+                (languageCandidates[1].assessment?.score ?? -Infinity);
             if (scoreGap >= minimumScoreGap) {
                 accepted.push(languageCandidates[0]);
                 for (const candidate of languageCandidates.slice(1))
@@ -1468,17 +1694,20 @@ const SCRIPT_PARAMETERS = Object.freeze({
         };
     }
     function selectTransferCandidates(candidates, direction, minimumScoreGap) {
-        if ("newest" !== direction)
+        if (direction !== "newest")
             return selectBestLanguageCandidates(candidates, minimumScoreGap);
         const accepted = [],
             rejected = [];
-        for (const candidate of candidates || [])
-            candidate.language && "unknown" !== candidate.language
-                ? accepted.push(candidate)
-                : rejected.push({
-                      ...candidate,
-                      rejectionReason: "无法确认语言",
-                  });
+        for (const candidate of candidates || []) {
+            if (candidate.language && candidate.language !== "unknown") {
+                accepted.push(candidate);
+            } else {
+                rejected.push({
+                    ...candidate,
+                    rejectionReason: "无法确认语言",
+                });
+            }
+        }
         return {
             accepted: accepted,
             rejected: rejected,
@@ -1491,8 +1720,8 @@ const SCRIPT_PARAMETERS = Object.freeze({
         const rules = [],
             lines = String(source || "").split(/[\n,]+/);
         for (let line of lines) {
-            if (((line = normalizeWhitespace(line).toLowerCase()), !line || line.startsWith("#")))
-                continue;
+            line = normalizeWhitespace(line).toLowerCase();
+            if (!line || line.startsWith("#")) continue;
             const pattern = `^${escapeRegex(line.includes(":") ? normalizeTag(line) : line).replace(/\\\*/g, ".*")}$`;
             rules.push({
                 namespaced: line.includes(":"),
@@ -1506,31 +1735,273 @@ const SCRIPT_PARAMETERS = Object.freeze({
             bareName = normalizedTag.slice(normalizedTag.indexOf(":") + 1);
         return rules.some((rule) => rule.regex.test(rule.namespaced ? normalizedTag : bareName));
     }
+    function extractCorrectionMetadata(title) {
+        const normalizedTitle = String(title || "")
+            .normalize("NFKC")
+            .toLowerCase();
+        return Array.from(
+            normalizedTitle.matchAll(/\[([^\[\]]*)\]|\(([^()]*)\)|【([^【】]*)】/gu),
+            (match) => normalizeWhitespace(match[1] ?? match[2] ?? match[3]),
+        ).filter(Boolean);
+    }
+    function maskMatches(text, regex, matches) {
+        return text.replace(regex, (match) => {
+            matches.push(normalizeWhitespace(match));
+            return " ".repeat(match.length);
+        });
+    }
+    function consumeLongestMarkers(text, markers) {
+        const matched = [],
+            sortedMarkers = [...markers].sort((left, right) => right.length - left.length);
+        let remainder = text;
+        for (const marker of sortedMarkers) {
+            let index = remainder.indexOf(marker);
+            while (index >= 0) {
+                matched.push(marker);
+                remainder = `${remainder.slice(0, index)}${" ".repeat(marker.length)}${remainder.slice(index + marker.length)}`;
+                index = remainder.indexOf(marker, index + marker.length);
+            }
+        }
+        return { matched: matched, remainder: remainder };
+    }
+    function classifyCorrectionState(titleGn, titleGj) {
+        const positivePattern = [...POSITIVE_CORRECTION_MARKERS]
+                .sort((left, right) => right.length - left.length)
+                .map(escapeRegex)
+                .join("|"),
+            prefixNegation = new RegExp(
+                `(?:\\b(?:not|non)\\s*[-–—]?\\s*|(?:不是|非|不)\\s*)(?:${positivePattern})`,
+                "giu",
+            ),
+            suffixNegation = new RegExp(
+                `(?:${positivePattern})\\s*(?:ではない|ではありません|じゃない|아님|아닌|아니다)`,
+                "giu",
+            ),
+            positiveMarkers = [],
+            negativeMarkers = [],
+            negatedMarkers = [];
+        for (const segment of [
+            ...extractCorrectionMetadata(titleGn),
+            ...extractCorrectionMetadata(titleGj),
+        ]) {
+            let remainder = maskMatches(segment, prefixNegation, negatedMarkers);
+            remainder = maskMatches(remainder, suffixNegation, negatedMarkers);
+            const positiveResult = consumeLongestMarkers(
+                remainder,
+                POSITIVE_CORRECTION_MARKERS,
+            );
+            positiveMarkers.push(...positiveResult.matched);
+            negativeMarkers.push(
+                ...consumeLongestMarkers(
+                    positiveResult.remainder,
+                    NEGATIVE_CORRECTION_MARKERS,
+                ).matched,
+            );
+        }
+        const uniquePositive = Array.from(new Set(positiveMarkers)),
+            uniqueNegative = Array.from(new Set(negativeMarkers)),
+            uniqueNegated = Array.from(new Set(negatedMarkers));
+        return {
+            state: uniqueNegated.length
+                ? "unknown"
+                : uniquePositive.length && uniqueNegative.length
+                  ? "conflict"
+                  : uniquePositive.length
+                    ? "explicit-uncensored"
+                    : uniqueNegative.length
+                      ? "explicit-censored"
+                      : "unmarked",
+            positiveMarkers: uniquePositive,
+            negativeMarkers: uniqueNegative,
+            negatedMarkers: uniqueNegated,
+        };
+    }
+    function collectTagSourceUrls(galleries, tag, mode) {
+        const normalizedTag = normalizeTag(tag),
+            urls = [];
+        for (const gallery of galleries || []) {
+            if (
+                gallery.tags?.some(
+                    (entry) =>
+                        normalizeTag(entry.tag) === normalizedTag &&
+                        (mode !== "solid" || entry.solid),
+                )
+            )
+                urls.push(gallery.url);
+        }
+        return Array.from(new Set(urls.filter(Boolean)));
+    }
+    function buildTargetTagSet(
+        target,
+        union,
+        blacklist,
+        sensitiveSourceUrls = [],
+        allowDerivedTag = true,
+    ) {
+        const normalizedUnion = Array.from(new Set((union || []).map(normalizeTag).filter(Boolean))),
+            hasSensitiveSource = normalizedUnion.includes(SENSITIVE_UNCENSORED_TAG),
+            tags = new Set(normalizedUnion.filter((tag) => tag !== SENSITIVE_UNCENSORED_TAG));
+        let correction,
+            titleGn = "",
+            titleGj = "";
+        try {
+            titleGn = String(target?.titleGn || "");
+            titleGj = String(target?.titleGj || "");
+            correction = classifyCorrectionState(titleGn, titleGj);
+        } catch (error) {
+            correction = {
+                state: "error",
+                positiveMarkers: [],
+                negativeMarkers: [],
+                negatedMarkers: [],
+                error: error instanceof Error ? error.message : String(error),
+            };
+        }
+        const isSensitiveBlacklisted = isBlacklisted(SENSITIVE_UNCENSORED_TAG, blacklist),
+            audit = {
+                tag: SENSITIVE_UNCENSORED_TAG,
+                targetUrl: String(target?.url || ""),
+                titleGn: titleGn,
+                titleGj: titleGj,
+                state: correction.state,
+                positiveMarkers: correction.positiveMarkers,
+                negativeMarkers: correction.negativeMarkers,
+                negatedMarkers: correction.negatedMarkers,
+                sourceUrls: Array.from(new Set(sensitiveSourceUrls.filter(Boolean))),
+                action: "",
+                reason: "",
+            },
+            derivedTags = [];
+        if (correction.state === "explicit-uncensored") {
+            if (!allowDerivedTag) {
+                audit.action = "below-minimum-pages";
+                audit.reason = "目标画廊未达到标题派生的最少页数";
+            } else if (isSensitiveBlacklisted) {
+                audit.action = "blacklisted";
+                audit.reason = "黑名单阻止标题派生标签";
+            } else {
+                tags.add(SENSITIVE_UNCENSORED_TAG);
+                derivedTags.push(SENSITIVE_UNCENSORED_TAG);
+                audit.action = "derived";
+                audit.reason = "目标标题明确标注无修正或去修正";
+            }
+        } else if (correction.state === "conflict") {
+            audit.action = "conflict";
+            audit.reason = "GN/GJ 修正状态证据互相冲突";
+        } else if (correction.state === "unknown") {
+            audit.action = "unknown";
+            audit.reason = "标题包含修正状态否定短语";
+        } else if (correction.state === "error") {
+            audit.action = "classifier-error";
+            audit.reason = `标题修正状态分类失败：${correction.error}`;
+        } else if (hasSensitiveSource) {
+            audit.action = "source-blocked";
+            audit.reason =
+                correction.state === "explicit-censored"
+                    ? "目标标题明确表示有修正"
+                    : "目标标题没有明确无修正标记";
+        }
+        return {
+            tags: Array.from(tags).sort(),
+            derivedTags: derivedTags,
+            correction: correction,
+            audit: audit.action ? audit : null,
+        };
+    }
     function buildTransferTagUnion(galleries, mode, blacklist) {
         const union = new Set();
-        for (const gallery of galleries)
-            for (const tagEntry of gallery.tags)
-                ("solid" !== mode || tagEntry.solid) &&
-                    (isBlacklisted(tagEntry.tag, blacklist) || union.add(tagEntry.tag));
+        for (const gallery of galleries) {
+            for (const tagEntry of gallery.tags) {
+                if (mode === "solid" && !tagEntry.solid) continue;
+                if (!isBlacklisted(tagEntry.tag, blacklist)) union.add(tagEntry.tag);
+            }
+        }
         return Array.from(union).sort();
     }
     function planTargetTags(union, targetTags) {
         const existingTags = new Map(targetTags.map((tag) => [tag.tag, tag])),
-            pending = [];
+            pending = [],
+            downvotedTags = [];
         let skippedSolid = 0,
-            skippedVoted = 0;
+            skippedVoted = 0,
+            skippedDownvoted = 0;
         for (const tag of union) {
             const existingTag = existingTags.get(tag);
-            existingTag?.solid
-                ? skippedSolid++
-                : existingTag?.voted
-                  ? skippedVoted++
-                  : pending.push(tag);
+            if (existingTag?.solid) {
+                skippedSolid++;
+            } else if (existingTag?.voted) {
+                skippedVoted++;
+            } else if (existingTag?.downvoted) {
+                skippedDownvoted++;
+                downvotedTags.push(tag);
+            } else {
+                pending.push(tag);
+            }
         }
         return {
             pending: pending,
             skippedSolid: skippedSolid,
             skippedVoted: skippedVoted,
+            skippedDownvoted: skippedDownvoted,
+            downvotedTags: downvotedTags,
+        };
+    }
+    function planRandomTagSkip(eligibleTags, config = DEFAULT_CONFIG, random = Math.random) {
+        const uniqueTags = Array.from(
+                new Set((eligibleTags || []).map(normalizeTag).filter(Boolean)),
+            ).sort(),
+            disabledResult = {
+                eligibleCount: uniqueTags.length,
+                requestedCount: 0,
+                actualCount: 0,
+                skippedTags: [],
+                remainingTags: uniqueTags,
+            };
+        if (!config.randomTagSkipEnabled || uniqueTags.length < 2) return disabledResult;
+
+        const configuredMinimum = clampInteger(
+                config.randomTagSkipMin,
+                DEFAULT_CONFIG.randomTagSkipMin,
+                0,
+                1_000,
+            ),
+            configuredMaximum = clampInteger(
+                config.randomTagSkipMax,
+                DEFAULT_CONFIG.randomTagSkipMax,
+                0,
+                1_000,
+            ),
+            minimum = Math.min(configuredMinimum, configuredMaximum),
+            maximum = Math.max(configuredMinimum, configuredMaximum),
+            countRandom = Math.min(1 - Number.EPSILON, Math.max(0, Number(random()) || 0)),
+            requestedCount = minimum + Math.floor(countRandom * (maximum - minimum + 1)),
+            actualCount = Math.min(requestedCount, uniqueTags.length - 1);
+        if (!actualCount)
+            return {
+                ...disabledResult,
+                requestedCount: requestedCount,
+            };
+
+        const shuffledTags = [...uniqueTags];
+        for (let index = shuffledTags.length - 1; index > 0; index--) {
+            const selectionRandom = Math.min(
+                    1 - Number.EPSILON,
+                    Math.max(0, Number(random()) || 0),
+                ),
+                selectedIndex = Math.floor(selectionRandom * (index + 1));
+            [shuffledTags[index], shuffledTags[selectedIndex]] = [
+                shuffledTags[selectedIndex],
+                shuffledTags[index],
+            ];
+        }
+        const skippedTags = shuffledTags.slice(0, actualCount).sort(),
+            skippedTagSet = new Set(skippedTags);
+        return {
+            eligibleCount: uniqueTags.length,
+            requestedCount: requestedCount,
+            actualCount: actualCount,
+            skippedTags: skippedTags,
+            remainingTags: uniqueTags.filter((tag) => !skippedTagSet.has(tag)),
         };
     }
     function buildTagBatches(tags, maxLength = 200) {
@@ -1541,13 +2012,16 @@ const SCRIPT_PARAMETERS = Object.freeze({
             const normalizedTag = normalizeTag(tag);
             if (!normalizedTag || normalizedTag.length > maxLength) continue;
             const addedLength = normalizedTag.length + (batch.length ? 1 : 0);
-            batch.length &&
-                batchLength + addedLength > maxLength &&
-                (batches.push(batch), (batch = []), (batchLength = 0)),
-                batch.push(normalizedTag),
-                (batchLength += normalizedTag.length + (batch.length > 1 ? 1 : 0));
+            if (batch.length && batchLength + addedLength > maxLength) {
+                batches.push(batch);
+                batch = [];
+                batchLength = 0;
+            }
+            batch.push(normalizedTag);
+            batchLength += normalizedTag.length + (batch.length > 1 ? 1 : 0);
         }
-        return batch.length && batches.push(batch), batches;
+        if (batch.length) batches.push(batch);
+        return batches;
     }
     function parseSearchResults(documentNode, origin) {
         const rows = documentNode.querySelectorAll(".itg tr,.gl1t"),
@@ -1584,28 +2058,92 @@ const SCRIPT_PARAMETERS = Object.freeze({
     function randomInteger(minimum, maximum) {
         return Math.round(minimum + Math.random() * (maximum - minimum));
     }
+    // 4. 统一请求生命周期与读取客户端
     function createAbortError() {
         return new DOMException("Aborted", "AbortError");
     }
+    function createTimeoutError(message) {
+        const error = new Error(message);
+        error.name = "TimeoutError";
+        return error;
+    }
+    function runRequestLifecycle({
+        signal,
+        timeoutMs = RUNTIME_LIMITS.fetchTimeoutMs,
+        createTimeoutFailure = () => createTimeoutError("请求超时"),
+        start,
+    }) {
+        return new Promise((resolve, reject) => {
+            let settled = false,
+                abortRequested = false,
+                transportAborted = false,
+                abortTransport = null,
+                timeoutId = null;
+            function settle(error, value) {
+                if (settled) return false;
+                settled = true;
+                clearTimeout(timeoutId);
+                signal?.removeEventListener("abort", handleAbort);
+                error ? reject(error) : resolve(value);
+                return true;
+            }
+            function abortTransportOnce() {
+                if (transportAborted || typeof abortTransport !== "function") return;
+                transportAborted = true;
+                try {
+                    abortTransport();
+                } catch (error) {
+                    console.warn(`${LOG_PREFIX} 无法中止底层请求`, error);
+                }
+            }
+            function cancel(error) {
+                if (settled) return;
+                abortRequested = true;
+                settle(error);
+                abortTransportOnce();
+            }
+            function handleAbort() {
+                cancel(createAbortError());
+            }
+            if (signal?.aborted) {
+                settle(createAbortError());
+                return;
+            }
+            signal?.addEventListener("abort", handleAbort, { once: true });
+            timeoutId = setTimeout(
+                () => cancel(createTimeoutFailure()),
+                Math.max(1, Number(timeoutMs) || RUNTIME_LIMITS.fetchTimeoutMs),
+            );
+            try {
+                abortTransport =
+                    start({
+                        resolve: (value) => settle(null, value),
+                        reject: (error) => settle(error),
+                        isSettled: () => settled,
+                    }) || null;
+                abortRequested && abortTransportOnce();
+            } catch (error) {
+                settle(error);
+            }
+        });
+    }
     function delay(milliseconds, signal) {
-        return signal?.aborted
-            ? Promise.reject(createAbortError())
-            : new Promise((resolve, reject) => {
-                  let settled = !1;
-                  const timer = setTimeout(() => settle(), milliseconds),
-                      abortHandler = () => settle(createAbortError());
-                  function settle(error) {
-                      settled ||
-                          ((settled = !0),
-                          clearTimeout(timer),
-                          signal?.removeEventListener("abort", abortHandler),
-                          error ? reject(error) : resolve());
-                  }
-                  signal?.addEventListener("abort", abortHandler, {
-                      once: !0,
-                  }),
-                      signal?.aborted && abortHandler();
-              });
+        if (signal?.aborted) return Promise.reject(createAbortError());
+        return new Promise((resolve, reject) => {
+            let settled = false;
+            const timer = setTimeout(() => settle(), milliseconds);
+            const abortHandler = () => settle(createAbortError());
+            function settle(error) {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                signal?.removeEventListener("abort", abortHandler);
+                if (error) reject(error);
+                else resolve();
+            }
+            signal?.addEventListener("abort", abortHandler, { once: true });
+            if (signal?.aborted) abortHandler();
+        });
     }
     async function randomDelay(minimum, maximum, signal) {
         await delay(randomInteger(minimum, maximum), signal);
@@ -1619,15 +2157,15 @@ const SCRIPT_PARAMETERS = Object.freeze({
     }
     async function waitForSearchThrottle(signal, intervalMs) {
         const waitMs = getSearchWaitMs(runtimeState.lastSearchRequestAt, Date.now(), intervalMs);
-        waitMs > 0 && (await delay(waitMs, signal)),
-            (runtimeState.lastSearchRequestAt = Date.now());
+        if (waitMs > 0) await delay(waitMs, signal);
+        runtimeState.lastSearchRequestAt = Date.now();
     }
     function isRetryableFetchError(error) {
-        if (!error || ["AbortError", "RequestBudgetError"].includes(error.name)) return !1;
+        if (!error || ["AbortError", "RequestBudgetError"].includes(error.name)) return false;
         const status = Number(error.status);
         return Number.isInteger(status) && status > 0
             ? [408, 425, 429].includes(status) || status >= 500
-            : "TypeError" === error.name || "TimeoutError" === error.name;
+            : error.name === "TypeError" || error.name === "TimeoutError";
     }
     function getRetryDelay(attempt) {
         const baseDelay = Math.min(
@@ -1636,7 +2174,7 @@ const SCRIPT_PARAMETERS = Object.freeze({
         );
         return randomInteger(0.8 * baseDelay, 1.2 * baseDelay);
     }
-    async function withFetchRetry(operation, signal, failureLabel) {
+    async function withReadRetry(operation, signal, failureLabel) {
         let lastError = null;
         for (let attempt = 1; attempt <= RUNTIME_LIMITS.fetchMaxAttempts; attempt++) {
             if (signal?.aborted) throw createAbortError();
@@ -1651,8 +2189,8 @@ const SCRIPT_PARAMETERS = Object.freeze({
             appendLog(
                 "warn",
                 `${failureLabel}，${delayMs} ms 后重试 ${attempt + 1}/${RUNTIME_LIMITS.fetchMaxAttempts}：${lastError.message}`,
-            ),
-                await delay(delayMs, signal);
+            );
+            await delay(delayMs, signal);
         }
         throw lastError;
     }
@@ -1661,56 +2199,45 @@ const SCRIPT_PARAMETERS = Object.freeze({
         signal,
         {
             beforeAttempt: beforeAttempt,
-            acceptStatus: acceptStatus = () => !1,
+            acceptStatus: acceptStatus = () => false,
             failureLabel: failureLabel = "读取失败",
         } = {},
     ) {
         const parsedUrl = new URL(url, location.href);
-        return withFetchRetry(
+        return withReadRetry(
             async () => {
                 if (signal?.aborted) throw createAbortError();
-                beforeAttempt && (await beforeAttempt(signal)),
-                    consumeTrackedRequest(`读取 ${parsedUrl.pathname}`);
-                const requestController = new AbortController();
-                let timedOut = !1;
-                const abortHandler = () => requestController.abort(),
-                    timeoutId = setTimeout(() => {
-                        (timedOut = !0), requestController.abort();
-                    }, RUNTIME_LIMITS.fetchTimeoutMs);
-                signal?.addEventListener("abort", abortHandler, {
-                    once: !0,
-                }),
-                    signal?.aborted && abortHandler();
-                try {
-                    const response = await fetch(parsedUrl.href, {
-                        credentials: "include",
-                        signal: requestController.signal,
-                        headers: {
-                            Accept: "text/html",
-                        },
-                    });
-                    if (!response.ok && !acceptStatus(response.status)) {
-                        const error = new Error(`HTTP ${response.status}`);
-                        throw ((error.status = response.status), error);
-                    }
-                    const responseText = await response.text();
-                    return {
-                        status: response.status,
-                        url: response.url || parsedUrl.href,
-                        html: responseText,
-                    };
-                } catch (error) {
-                    if (signal?.aborted) throw createAbortError();
-                    if (timedOut) {
-                        const timeoutError = new Error(
-                            `读取超时（${RUNTIME_LIMITS.fetchTimeoutMs / 1e3} 秒）`,
-                        );
-                        throw ((timeoutError.name = "TimeoutError"), timeoutError);
-                    }
-                    throw error;
-                } finally {
-                    clearTimeout(timeoutId), signal?.removeEventListener("abort", abortHandler);
-                }
+                if (beforeAttempt) await beforeAttempt(signal);
+                consumeTrackedRequest(`读取 ${parsedUrl.pathname}`);
+                return runRequestLifecycle({
+                    signal: signal,
+                    createTimeoutFailure: () =>
+                        createTimeoutError(
+                            `读取超时（${RUNTIME_LIMITS.fetchTimeoutMs / 1_000} 秒）`,
+                        ),
+                    start({ resolve: resolveRequest, reject: rejectRequest }) {
+                        const requestController = new AbortController();
+                        fetch(parsedUrl.href, {
+                            credentials: "include",
+                            signal: requestController.signal,
+                            headers: { Accept: "text/html" },
+                        })
+                            .then(async (response) => {
+                                if (!response.ok && !acceptStatus(response.status)) {
+                                    const error = new Error(`HTTP ${response.status}`);
+                                    error.status = response.status;
+                                    throw error;
+                                }
+                                return {
+                                    status: response.status,
+                                    url: response.url || parsedUrl.href,
+                                    html: await response.text(),
+                                };
+                            })
+                            .then(resolveRequest, rejectRequest);
+                        return () => requestController.abort();
+                    },
+                });
             },
             signal,
             failureLabel,
@@ -1739,17 +2266,17 @@ const SCRIPT_PARAMETERS = Object.freeze({
             const api = new URL(apiUrl),
                 gallery = new URL(galleryUrl);
             return (
-                "/api.php" === api.pathname &&
+                api.pathname === "/api.php" &&
                 (["127.0.0.1", "localhost"].includes(gallery.hostname)
                     ? api.origin === gallery.origin
-                    : "https:" === api.protocol &&
-                      ("exhentai.org" === gallery.hostname
+                    : api.protocol === "https:" &&
+                      (gallery.hostname === "exhentai.org"
                           ? new Set(["exhentai.org", "s.exhentai.org", "api.e-hentai.org"])
                           : new Set(["e-hentai.org", "api.e-hentai.org"])
                       ).has(api.hostname))
             );
         } catch {
-            return !1;
+            return false;
         }
     }
     function parseGalleryWriteContext(documentNode, galleryUrl) {
@@ -1797,80 +2324,168 @@ const SCRIPT_PARAMETERS = Object.freeze({
     function isUsableGalleryDocument(documentNode) {
         return Boolean(documentNode.querySelector("#gn") && documentNode.querySelector("#taglist"));
     }
+    function isUnavailableGalleryDocument(documentNode, status) {
+        if (isUnavailableGalleryStatus(status)) return true;
+        if (documentNode.querySelector("#gn")) return false;
+        const pageText = `${documentNode.title}\n${documentNode.body?.innerText || ""}`;
+        return /\b(?:404|410)\b|gallery\s+(?:not found|unavailable|removed|expunged)/i.test(
+            pageText,
+        );
+    }
+    function rememberGallerySnapshot(snapshot) {
+        if (snapshot?.gallery) gallerySnapshotCache.set(snapshot.gallery, snapshot);
+        return snapshot;
+    }
     async function fetchGallerySnapshot(url, signal) {
         const response = await fetchHtml(url, signal, {
                 acceptStatus: isUnavailableGalleryStatus,
                 failureLabel: "画廊读取失败",
             }),
             documentNode = new DOMParser().parseFromString(response.html, "text/html"),
-            unavailable = (function (documentNode, status) {
-                if (isUnavailableGalleryStatus(status)) return !0;
-                if (documentNode.querySelector("#gn")) return !1;
-                const pageText = `${documentNode.title}\n${documentNode.body?.innerText || ""}`;
-                return /\b(?:404|410)\b|gallery\s+(?:not found|unavailable|removed|expunged)/i.test(
-                    pageText,
-                );
-            })(documentNode, response.status);
+            unavailable = isUnavailableGalleryDocument(documentNode, response.status);
         if (!unavailable && !isUsableGalleryDocument(documentNode)) {
             const error = new Error("画廊页面结构异常或当前无法访问");
-            throw ((error.name = "GalleryStructureError"), error);
+            error.name = "GalleryStructureError";
+            throw error;
         }
-        return {
+        return rememberGallerySnapshot({
             url: response.url,
             status: response.status,
             unavailable: unavailable,
             doc: documentNode,
             gallery: unavailable ? null : parseGalleryDocument(documentNode, response.url),
             writeContext: unavailable ? null : parseGalleryWriteContext(documentNode, response.url),
+        });
+    }
+    function isRedBadTagAnchor(anchor) {
+        return (
+            String(anchor.style?.color || "").toLowerCase() === "red" ||
+            /(?:^|;)\s*color\s*:\s*red(?:\s*;|$)/i.test(anchor.getAttribute("style") || "")
+        );
+    }
+    function buildBadTagAudit(
+        galleries,
+        { uid: uid = "", repositoryUrl: repositoryUrl = "", recordedAt: recordedAt = new Date() } = {},
+    ) {
+        const normalizedGalleries = [];
+        for (const gallery of galleries || []) {
+            const galleryUrl = canonicalGalleryUrl(gallery?.galleryUrl, DEFAULT_ORIGIN),
+                title = normalizeWhitespace(gallery?.title),
+                tags = Array.from(new Set((gallery?.tags || []).map(normalizeTag).filter(Boolean))),
+                badTags = (gallery?.badTags || [])
+                    .map((record) => ({
+                        tag: normalizeTag(typeof record === "string" ? record : record?.tag),
+                        timestamp: normalizeWhitespace(
+                            typeof record === "string" ? "" : record?.timestamp,
+                        ),
+                    }))
+                    .filter((record) => record.tag);
+            if (!galleryUrl || !badTags.length) continue;
+            for (const record of badTags) {
+                if (!tags.includes(record.tag)) tags.push(record.tag);
+            }
+            normalizedGalleries.push({
+                gid: String(gallery?.gid || galleryIdFromUrl(galleryUrl)),
+                galleryUrl: galleryUrl,
+                title: title,
+                titleLength: Array.from(title).length,
+                normalizedTitleLength: normalizeComparableTitle(title).length,
+                tagCount: tags.length,
+                badTagCount: badTags.length,
+                tags: tags,
+                badTags: badTags,
+            });
+        }
+        const tagCountMap = new Map();
+        for (const gallery of normalizedGalleries)
+            for (const record of gallery.badTags) {
+                const count = tagCountMap.get(record.tag) || {
+                    tag: record.tag,
+                    count: 0,
+                    galleryIds: new Set(),
+                };
+                count.count++;
+                count.galleryIds.add(gallery.gid);
+                tagCountMap.set(record.tag, count);
+            }
+        const tagCounts = Array.from(tagCountMap.values())
+                .map((count) => ({
+                    tag: count.tag,
+                    count: count.count,
+                    galleryCount: count.galleryIds.size,
+                }))
+                .sort((left, right) => right.count - left.count || left.tag.localeCompare(right.tag)),
+            recordedDate = recordedAt instanceof Date ? recordedAt : new Date(recordedAt);
+        return {
+            recordedAt: (Number.isFinite(recordedDate.getTime()) ? recordedDate : new Date()).toISOString(),
+            uid: String(uid || ""),
+            repositoryUrl: String(repositoryUrl || ""),
+            galleryCount: normalizedGalleries.length,
+            badTagRecordCount: normalizedGalleries.reduce(
+                (total, gallery) => total + gallery.badTagCount,
+                0,
+            ),
+            uniqueBadTagCount: tagCounts.length,
+            tagCounts: tagCounts,
+            galleries: normalizedGalleries,
         };
     }
-    function parseBadTagRecords(documentNode, origin = "https://repo.e-hentai.org") {
-        const records = [];
+    function parseBadTagReport(documentNode, origin = "https://repo.e-hentai.org", options = {}) {
+        const records = [],
+            galleries = [];
         let currentGallery = null;
-        const rows = documentNode.querySelectorAll("#usertaglist tr");
-        for (const row of rows) {
+        for (const row of documentNode.querySelectorAll("#usertaglist tr")) {
             const galleryAnchor = Array.from(row.querySelectorAll("a[href]")).find((anchor) =>
                 /\/g\/\d+\/[0-9a-f]+\/?/i.test(anchor.href),
             );
             if (galleryAnchor) {
                 const galleryUrl = canonicalGalleryUrl(galleryAnchor.href, origin),
-                    gidMatch = galleryUrl.match(/\/g\/(\d+)\//);
+                    gid = galleryIdFromUrl(galleryUrl);
                 currentGallery =
-                    galleryUrl && gidMatch
+                    galleryUrl && gid
                         ? {
-                              gid: gidMatch[1],
+                              gid: gid,
                               galleryUrl: galleryUrl,
+                              title: normalizeWhitespace(galleryAnchor.textContent),
+                              tags: [],
+                              badTags: [],
                           }
                         : null;
+                currentGallery && galleries.push(currentGallery);
                 continue;
             }
             if (!currentGallery) continue;
-            const redAnchors = Array.from(row.querySelectorAll("a")).filter(
-                    (anchor) =>
-                        "red" === String(anchor.style?.color || "").toLowerCase() ||
-                        /(?:^|;)\s*color\s*:\s*red(?:\s*;|$)/i.test(
-                            anchor.getAttribute("style") || "",
-                        ),
-                ),
-                timestampCell = row.querySelector("td[title]"),
+            const timestampCell = row.querySelector("td[title]"),
                 timestamp = normalizeWhitespace(
                     timestampCell?.getAttribute("title") || timestampCell?.textContent,
                 );
-            for (const anchor of redAnchors) {
+            for (const anchor of row.querySelectorAll('a[ehs-tag],a[href*="/tag/"]')) {
                 const tag = normalizeTag(
                     anchor.getAttribute("ehs-tag") ||
                         anchor.getAttribute("title") ||
                         anchor.textContent,
                 );
-                tag &&
-                    records.push({
-                        ...currentGallery,
+                if (!tag) continue;
+                if (!currentGallery.tags.includes(tag)) currentGallery.tags.push(tag);
+                if (isRedBadTagAnchor(anchor)) {
+                    const record = {
+                        gid: currentGallery.gid,
+                        galleryUrl: currentGallery.galleryUrl,
                         tag: tag,
                         timestamp: timestamp,
-                    });
+                    };
+                    currentGallery.badTags.push({ tag: tag, timestamp: timestamp });
+                    records.push(record);
+                }
             }
         }
-        return records;
+        return {
+            records: records,
+            audit: buildBadTagAudit(galleries, {
+                ...options,
+                repositoryUrl: options.repositoryUrl || origin,
+            }),
+        };
     }
     function badTagRecordFingerprint(record) {
         return [record.gid, normalizeTag(record.tag), normalizeWhitespace(record.timestamp)].join(
@@ -1880,8 +2495,26 @@ const SCRIPT_PARAMETERS = Object.freeze({
     function sanitizeBadTagState(state = {}, fallbackUid = "") {
         return {
             uid: String(state.uid || fallbackUid),
-            knownFingerprints: Array.from(new Set(state.knownFingerprints || [])).slice(-2e3),
+            knownFingerprints: Array.from(new Set(state.knownFingerprints || [])).slice(-2_000),
         };
+    }
+    function loadBadTagState(uid) {
+        try {
+            const storedState = JSON.parse(
+                localStorage.getItem(BAD_TAG_STATE_STORAGE_KEY) || "null",
+            );
+            if (storedState?.uid === uid && Array.isArray(storedState.knownFingerprints)) {
+                return sanitizeBadTagState(storedState);
+            }
+        } catch (error) {
+            console.warn(`${LOG_PREFIX} 无法读取错误标签状态`, error);
+        }
+        return sanitizeBadTagState({}, uid);
+    }
+    function saveBadTagState(state) {
+        const sanitizedState = sanitizeBadTagState(state);
+        localStorage.setItem(BAD_TAG_STATE_STORAGE_KEY, JSON.stringify(sanitizedState));
+        return sanitizedState;
     }
     function buildSearchUrl(query, origin = DEFAULT_ORIGIN) {
         const url = new URL("/", origin);
@@ -1909,19 +2542,17 @@ const SCRIPT_PARAMETERS = Object.freeze({
                 coreLength: titleKey.length,
             });
         }
-        return (
-            addQuery(
-                titleSet.fields.find((field) => 0 === field.index),
-                "english",
-                "英文标题",
-            ),
-            addQuery(
-                titleSet.fields.find((field) => 1 === field.index),
-                "japanese",
-                "日文标题",
-            ),
-            queries
+        addQuery(
+            titleSet.fields.find((field) => field.index === 0),
+            "english",
+            "英文标题",
         );
+        addQuery(
+            titleSet.fields.find((field) => field.index === 1),
+            "japanese",
+            "日文标题",
+        );
+        return queries;
     }
     function shouldContinueSearchPages(
         {
@@ -1938,20 +2569,14 @@ const SCRIPT_PARAMETERS = Object.freeze({
             !hasNext ||
             page >= maxPages ||
             newResultCount <= 0 ||
-            ("title" === query.kind &&
+            (query.kind === "title" &&
                 query.coreLength > config.genericTitleLength &&
                 hasStrongCandidate)
         );
     }
     function shouldRunJapaneseSearch(currentGallery, candidates, config = DEFAULT_CONFIG) {
         return !Array.from(candidates || []).some((candidate) =>
-            (function (currentGallery, candidate, config) {
-                return (
-                    candidate.url !== currentGallery.url &&
-                    !hasSameExplicitLanguage(currentGallery, candidate) &&
-                    assessCandidate(currentGallery, candidate, config).accepted
-                );
-            })(currentGallery, candidate, config),
+            isStrongPreviewCandidate(currentGallery, candidate, config),
         );
     }
     function isStrongPreviewCandidate(currentGallery, candidate, config) {
@@ -1975,13 +2600,15 @@ const SCRIPT_PARAMETERS = Object.freeze({
                 }),
                 pageResults = parseSearchResults(documentNode, location.origin);
             let newResultCount = 0;
-            for (const result of pageResults)
-                resultsByUrl.has(result.url) ||
-                    (resultsByUrl.set(result.url, {
+            for (const result of pageResults) {
+                if (!resultsByUrl.has(result.url)) {
+                    resultsByUrl.set(result.url, {
                         ...result,
                         matchedQueries: [query.text],
-                    }),
-                    newResultCount++);
+                    });
+                    newResultCount++;
+                }
+            }
             const nextHref = documentNode.querySelector("#dnext[href]")?.getAttribute("href");
             let followingUrl = "";
             if (nextHref) {
@@ -2014,17 +2641,11 @@ const SCRIPT_PARAMETERS = Object.freeze({
             results: Array.from(resultsByUrl.values()),
         };
     }
-    function truncateLogTitle(text, maxLength = 70) {
-        const normalized = normalizeWhitespace(text);
-        return normalized.length > maxLength
-            ? `${normalized.slice(0, maxLength - 1)}…`
-            : normalized;
-    }
     function canonicalHomepageUrl(url) {
         try {
             const parsedUrl = new URL(url || "/", location.origin);
             return parsedUrl.origin !== location.origin ||
-                "/" !== parsedUrl.pathname ||
+                parsedUrl.pathname !== "/" ||
                 parsedUrl.searchParams.has("f_search")
                 ? ""
                 : parsedUrl.href;
@@ -2035,6 +2656,7 @@ const SCRIPT_PARAMETERS = Object.freeze({
     function isUnavailableGalleryStatus(status) {
         return [404, 410].includes(Number(status));
     }
+    // 5. 直连写入与错误标签处理
     function getBadTagCorrectionStrategy({
         exists: exists,
         upvoted: upvoted,
@@ -2049,123 +2671,100 @@ const SCRIPT_PARAMETERS = Object.freeze({
               : "already-missing";
     }
     function getTagVoteState(documentNode, tag) {
-        const tagAnchor = (function (documentNode, tag) {
-            const normalizedTag = normalizeTag(tag);
-            return (
-                Array.from(documentNode.querySelectorAll('#taglist div[id^="td_"]')).find(
-                    (tagRow) => {
-                        const anchor = tagRow.querySelector("a");
-                        return anchor && readTagFromAnchor(anchor) === normalizedTag;
-                    },
-                ) || null
-            );
-        })(documentNode, tag)?.querySelector("a");
+        const normalizedTag = normalizeTag(tag);
+        const tagRow =
+            Array.from(documentNode.querySelectorAll('#taglist div[id^="td_"]')).find(
+                (candidateRow) => {
+                    const anchor = candidateRow.querySelector("a");
+                    return anchor && readTagFromAnchor(anchor) === normalizedTag;
+                },
+            ) || null;
+        const tagAnchor = tagRow?.querySelector("a");
         return {
             exists: Boolean(tagAnchor),
-            upvoted: !0 === tagAnchor?.classList.contains("tup"),
-            downvoted: !0 === tagAnchor?.classList.contains("tdn"),
+            upvoted: tagAnchor?.classList.contains("tup") === true,
+            downvoted: tagAnchor?.classList.contains("tdn") === true,
         };
     }
+    function createTagVoteResponseError(message, status = 0) {
+        const error = new Error(message);
+        error.name = "TagVoteResponseUnknownError";
+        if (status) error.status = status;
+        return error;
+    }
+    function submitTagVoteRequest(writeContext, tags, vote, signal) {
+        const payload = buildTagGalleryPayload(writeContext, tags, vote);
+        if (!payload.tags) return Promise.resolve({});
+        consumeTrackedRequest(`标签投票 ${writeContext.gid}`);
+        return runRequestLifecycle({
+            signal: signal,
+            createTimeoutFailure: () => createTagVoteResponseError("标签接口响应超时"),
+            start({ resolve: resolveRequest, reject: rejectRequest }) {
+                const request = new XMLHttpRequest();
+                request.open("POST", writeContext.apiUrl, true);
+                request.setRequestHeader("Content-Type", "application/json");
+                request.setRequestHeader("Accept", "application/json");
+                request.withCredentials = true;
+                request.onload = () => {
+                    if (request.status < 200 || request.status >= 300) {
+                        rejectRequest(
+                            createTagVoteResponseError(
+                                `标签接口 HTTP ${request.status}`,
+                                request.status,
+                            ),
+                        );
+                        return;
+                    }
+                    let responsePayload;
+                    try {
+                        responsePayload = JSON.parse(request.responseText || "{}");
+                    } catch {
+                        rejectRequest(createTagVoteResponseError("标签接口返回了无法识别的响应"));
+                        return;
+                    }
+                    if (responsePayload?.login != null) {
+                        const authError = new Error("标签接口要求重新登录");
+                        authError.name = "TagVoteAuthError";
+                        rejectRequest(authError);
+                        return;
+                    }
+                    if (responsePayload?.error != null) {
+                        const apiError = new Error(String(responsePayload.error));
+                        apiError.name = isBadTagVoteLockedMessage(apiError.message)
+                            ? "BadTagVoteLockedError"
+                            : "TagVoteApiError";
+                        rejectRequest(apiError);
+                        return;
+                    }
+                    resolveRequest(responsePayload);
+                };
+                request.onerror = () =>
+                    rejectRequest(createTagVoteResponseError("标签接口网络失败"));
+                request.onabort = () => rejectRequest(createAbortError());
+                request.send(JSON.stringify(payload));
+                return () => request.abort();
+            },
+        });
+    }
     async function submitTagVoteAndVerify(snapshot, tags, vote, signal) {
+        if (!canStartVerifiedTagVote(runtimeState.requestBudget)) {
+            const error = new Error("剩余请求不足以完成标签投票和写后验证");
+            error.name = "RequestBudgetError";
+            throw error;
+        }
         let voteError = null;
         try {
-            await (function (writeContext, tags, vote, signal) {
-                const payload = buildTagGalleryPayload(writeContext, tags, vote);
-                return payload.tags
-                    ? (consumeTrackedRequest(`标签投票 ${writeContext.gid}`),
-                      new Promise((resolve, reject) => {
-                          const request = new XMLHttpRequest();
-                          let settled = !1;
-                          function settle(error, value) {
-                              settled ||
-                                  ((settled = !0),
-                                  signal?.removeEventListener("abort", abortRequest),
-                                  error ? reject(error) : resolve(value));
-                          }
-                          function createUnknownResponseError(message, status = 0) {
-                              const error = new Error(message);
-                              return (
-                                  (error.name = "TagVoteResponseUnknownError"),
-                                  status && (error.status = status),
-                                  error
-                              );
-                          }
-                          function abortRequest() {
-                              try {
-                                  request.abort();
-                              } finally {
-                                  settle(createAbortError());
-                              }
-                          }
-                          request.open("POST", writeContext.apiUrl, !0),
-                              request.setRequestHeader("Content-Type", "application/json"),
-                              request.setRequestHeader("Accept", "application/json"),
-                              (request.withCredentials = !0),
-                              (request.timeout = RUNTIME_LIMITS.fetchTimeoutMs),
-                              (request.onload = () => {
-                                  if (request.status < 200 || request.status >= 300)
-                                      return void settle(
-                                          createUnknownResponseError(
-                                              `标签接口 HTTP ${request.status}`,
-                                              request.status,
-                                          ),
-                                      );
-                                  let responsePayload;
-                                  try {
-                                      responsePayload = JSON.parse(request.responseText || "{}");
-                                  } catch {
-                                      return void settle(
-                                          createUnknownResponseError(
-                                              "标签接口返回了无法识别的响应",
-                                          ),
-                                      );
-                                  }
-                                  if (null != responsePayload?.login) {
-                                      const authError = new Error("标签接口要求重新登录");
-                                      return (
-                                          (authError.name = "TagVoteAuthError"),
-                                          void settle(authError)
-                                      );
-                                  }
-                                  if (null != responsePayload?.error) {
-                                      const apiError = new Error(String(responsePayload.error));
-                                      return (
-                                          (apiError.name = isBadTagVoteLockedMessage(
-                                              apiError.message,
-                                          )
-                                              ? "BadTagVoteLockedError"
-                                              : "TagVoteApiError"),
-                                          void settle(apiError)
-                                      );
-                                  }
-                                  settle(null, responsePayload);
-                              }),
-                              (request.onerror = () =>
-                                  settle(createUnknownResponseError("标签接口网络失败"))),
-                              (request.ontimeout = () =>
-                                  settle(createUnknownResponseError("标签接口响应超时"))),
-                              (request.onabort = () => settle(createAbortError())),
-                              signal?.aborted
-                                  ? abortRequest()
-                                  : (signal?.addEventListener("abort", abortRequest, {
-                                        once: !0,
-                                    }),
-                                    request.send(JSON.stringify(payload)));
-                      }))
-                    : Promise.resolve({});
-            })(snapshot.writeContext, tags, vote, signal);
+            await submitTagVoteRequest(snapshot.writeContext, tags, vote, signal);
         } catch (error) {
             if (["AbortError", "RequestBudgetError", "BadTagVoteLockedError"].includes(error.name))
                 throw error;
             voteError = error;
         }
-        return (
-            await delay(RUNTIME_LIMITS.directVoteVerifyDelayMs, signal),
-            {
-                snapshot: await fetchGallerySnapshot(snapshot.url, signal),
-                voteError: voteError,
-            }
-        );
+        await delay(RUNTIME_LIMITS.directVoteVerifyDelayMs, signal);
+        return {
+            snapshot: await fetchGallerySnapshot(snapshot.url, signal),
+            voteError: voteError,
+        };
     }
     async function correctBadTagRecord(record, signal) {
         const parsedUrl = new URL(record.galleryUrl),
@@ -2177,11 +2776,11 @@ const SCRIPT_PARAMETERS = Object.freeze({
             };
         let voteState = getTagVoteState(snapshot.doc, record.tag);
         const strategy = getBadTagCorrectionStrategy(voteState);
-        if ("already-downvoted" === strategy)
+        if (strategy === "already-downvoted")
             return {
                 status: "already-downvoted",
             };
-        if ("already-missing" === strategy)
+        if (strategy === "already-missing")
             return {
                 status: "already-missing",
             };
@@ -2189,14 +2788,16 @@ const SCRIPT_PARAMETERS = Object.freeze({
             return {
                 status: "vote-api-unavailable",
             };
-        let withdrewUpvote = !1;
-        if ("withdraw-and-downvote" === strategy) {
+        let withdrewUpvote = false;
+        if (strategy === "withdraw-and-downvote") {
             const withdrawResult = await submitTagVoteAndVerify(snapshot, [record.tag], -1, signal);
-            if (((snapshot = withdrawResult.snapshot), snapshot.unavailable))
+            snapshot = withdrawResult.snapshot;
+            if (snapshot.unavailable)
                 return {
                     status: "gallery-unavailable",
                 };
-            if (((voteState = getTagVoteState(snapshot.doc, record.tag)), !voteState.exists))
+            voteState = getTagVoteState(snapshot.doc, record.tag);
+            if (!voteState.exists)
                 return {
                     status: "already-missing",
                 };
@@ -2206,12 +2807,14 @@ const SCRIPT_PARAMETERS = Object.freeze({
                 };
             if (voteState.upvoted)
                 throw withdrawResult.voteError || new Error("撤销赞成票后状态没有变化");
-            if (((withdrewUpvote = !0), !snapshot.writeContext))
+            withdrewUpvote = true;
+            if (!snapshot.writeContext)
                 return {
                     status: "vote-api-unavailable",
                 };
         }
-        if (((voteState = getTagVoteState(snapshot.doc, record.tag)), !voteState.exists))
+        voteState = getTagVoteState(snapshot.doc, record.tag);
+        if (!voteState.exists)
             return {
                 status: "already-missing",
             };
@@ -2220,11 +2823,13 @@ const SCRIPT_PARAMETERS = Object.freeze({
                 status: withdrewUpvote ? "withdrawn-and-downvoted" : "already-downvoted",
             };
         const voteResult = await submitTagVoteAndVerify(snapshot, [record.tag], -1, signal);
-        if (((snapshot = voteResult.snapshot), snapshot.unavailable))
+        snapshot = voteResult.snapshot;
+        if (snapshot.unavailable)
             return {
                 status: "gallery-unavailable",
             };
-        if (((voteState = getTagVoteState(snapshot.doc, record.tag)), !voteState.exists))
+        voteState = getTagVoteState(snapshot.doc, record.tag);
+        if (!voteState.exists)
             return {
                 status: "already-missing",
             };
@@ -2235,131 +2840,88 @@ const SCRIPT_PARAMETERS = Object.freeze({
         };
     }
     function isTerminalBadTagStatus(status) {
-        return !0 === BAD_TAG_OUTCOME_META[status]?.terminal;
+        return BAD_TAG_OUTCOME_META[status]?.terminal === true;
     }
     function logBadTagResult(level, record, message) {
-        appendLog(level, `${record.gid} ${record.tag}：${message}`, record.galleryUrl);
+        appendLog(level, `${record.gid} ${record.tag}：${message}`, record.galleryUrl, true);
     }
-    async function processBadTags(config, signal, { reviewKnown: reviewKnown = !1 } = {}) {
+    function fetchRepositoryText(url, signal) {
+        return withReadRetry(
+            () => {
+                if (typeof GM_xmlhttpRequest !== "function")
+                    throw new Error("当前脚本管理器不支持 GM_xmlhttpRequest");
+                consumeTrackedRequest("读取错误标签列表");
+                return runRequestLifecycle({
+                    signal: signal,
+                    createTimeoutFailure: () =>
+                        createTimeoutError(
+                            `读取错误标签页超时（${RUNTIME_LIMITS.fetchTimeoutMs / 1_000} 秒）`,
+                        ),
+                    start({ resolve: resolveRequest, reject: rejectRequest }) {
+                        const request = GM_xmlhttpRequest({
+                            method: "GET",
+                            url: url,
+                            anonymous: false,
+                            headers: { Accept: "text/html" },
+                            onload(response) {
+                                if (response.status < 200 || response.status >= 300) {
+                                    const error = new Error(
+                                        `错误标签页 HTTP ${response.status}`,
+                                    );
+                                    error.status = response.status;
+                                    rejectRequest(error);
+                                    return;
+                                }
+                                resolveRequest(response.responseText);
+                            },
+                            onerror(event) {
+                                const error = new Error("无法读取错误标签页");
+                                error.name = "TypeError";
+                                if (Number(event?.status) > 0) {
+                                    error.status = Number(event.status);
+                                }
+                                rejectRequest(error);
+                            },
+                            onabort() {
+                                rejectRequest(createAbortError());
+                            },
+                        });
+                        return () => request?.abort();
+                    },
+                });
+            },
+            signal,
+            "错误标签页读取失败",
+        );
+    }
+    async function processBadTags(config, signal, { reviewKnown: reviewKnown = false } = {}) {
         if (!config.badTagEnabled) return;
-        if (!config.uid)
-            return void appendLog("warn", "已启用错误标签检查，但脚本参数区尚未填写用户 UID");
+        if (!config.uid) {
+            appendLog("warn", "已启用错误标签检查，但脚本参数区尚未填写用户 UID");
+            return;
+        }
         const repositoryUrl = `https://repo.e-hentai.org/tools/taglist?uid=${encodeURIComponent(config.uid)}&badtags=1`,
-            html = await (async function (url, signal) {
-                return withFetchRetry(
-                    () =>
-                        (function (url, signal) {
-                            return (
-                                consumeTrackedRequest("读取错误标签列表"),
-                                new Promise((resolve, reject) => {
-                                    if ("function" != typeof GM_xmlhttpRequest)
-                                        return void reject(
-                                            new Error("当前脚本管理器不支持 GM_xmlhttpRequest"),
-                                        );
-                                    let settled = !1;
-                                    const request = GM_xmlhttpRequest({
-                                        method: "GET",
-                                        url: url,
-                                        timeout: RUNTIME_LIMITS.fetchTimeoutMs,
-                                        anonymous: !1,
-                                        headers: {
-                                            Accept: "text/html",
-                                        },
-                                        onload(response) {
-                                            if (!settled) {
-                                                if (
-                                                    response.status < 200 ||
-                                                    response.status >= 300
-                                                ) {
-                                                    const error = new Error(
-                                                        `错误标签页 HTTP ${response.status}`,
-                                                    );
-                                                    return (
-                                                        (error.status = response.status),
-                                                        void rejectOnce(error)
-                                                    );
-                                                }
-                                                (settled = !0),
-                                                    cleanup(),
-                                                    resolve(response.responseText);
-                                            }
-                                        },
-                                        onerror(event) {
-                                            const error = new Error("无法读取错误标签页");
-                                            (error.name = "TypeError"),
-                                                Number(event?.status) > 0 &&
-                                                    (error.status = Number(event.status)),
-                                                rejectOnce(error);
-                                        },
-                                        ontimeout() {
-                                            const error = new Error(
-                                                `读取错误标签页超时（${RUNTIME_LIMITS.fetchTimeoutMs / 1e3} 秒）`,
-                                            );
-                                            (error.name = "TimeoutError"), rejectOnce(error);
-                                        },
-                                        onabort() {
-                                            rejectOnce(createAbortError());
-                                        },
-                                    });
-                                    function cleanup() {
-                                        signal?.removeEventListener("abort", abortRequest);
-                                    }
-                                    function rejectOnce(error) {
-                                        settled || ((settled = !0), cleanup(), reject(error));
-                                    }
-                                    function abortRequest() {
-                                        try {
-                                            request.abort();
-                                        } catch {
-                                        } finally {
-                                            rejectOnce(createAbortError());
-                                        }
-                                    }
-                                    signal?.aborted
-                                        ? abortRequest()
-                                        : signal?.addEventListener("abort", abortRequest, {
-                                              once: !0,
-                                          });
-                                })
-                            );
-                        })(url, signal),
-                    signal,
-                    "错误标签页读取失败",
-                );
-            })(repositoryUrl, signal),
+            html = await fetchRepositoryText(repositoryUrl, signal),
             documentNode = new DOMParser().parseFromString(html, "text/html");
         if (!documentNode.querySelector("#usertaglist"))
             throw new Error("错误标签页结构异常或当前无法访问");
-        const records = parseBadTagRecords(documentNode, repositoryUrl);
-        let state = (function (uid) {
-            try {
-                const storedState = JSON.parse(
-                    localStorage.getItem(BAD_TAG_STATE_STORAGE_KEY) || "null",
-                );
-                if (storedState?.uid === uid && Array.isArray(storedState.knownFingerprints))
-                    return sanitizeBadTagState(storedState);
-            } catch (error) {
-                console.warn(`${LOG_PREFIX} 无法读取错误标签状态`, error);
-            }
-            return sanitizeBadTagState({}, uid);
-        })(config.uid);
+        const report = parseBadTagReport(documentNode, repositoryUrl, {
+                uid: config.uid,
+                repositoryUrl: repositoryUrl,
+            }),
+            records = report.records;
+        runtimeState.badTagAudit = report.audit;
+        let state = loadBadTagState(config.uid);
         const knownFingerprints = new Set(state.knownFingerprints),
             batch = selectBadTagBatch(records, state, reviewKnown);
-        if (!batch.totalPending)
-            return void appendLog("ok", `错误标签检查完成：${records.length} 条记录均已处理`);
+        if (!batch.totalPending) {
+            setStatus(`错误标签检查完成：${records.length} 条记录均已处理`);
+            return;
+        }
         function markKnown(record) {
-            knownFingerprints.add(badTagRecordFingerprint(record)),
-                (state.knownFingerprints = Array.from(knownFingerprints)),
-                (state = (function (state) {
-                    const sanitizedState = sanitizeBadTagState(state);
-                    return (
-                        localStorage.setItem(
-                            BAD_TAG_STATE_STORAGE_KEY,
-                            JSON.stringify(sanitizedState),
-                        ),
-                        sanitizedState
-                    );
-                })(state));
+            knownFingerprints.add(badTagRecordFingerprint(record));
+            state.knownFingerprints = Array.from(knownFingerprints);
+            state = saveBadTagState(state);
         }
         appendLog(
             "warn",
@@ -2368,6 +2930,7 @@ const SCRIPT_PARAMETERS = Object.freeze({
                 : `发现 ${batch.totalPending} 条待处理错误标签记录（本轮 ${batch.records.length} 条）`,
         );
         for (const record of batch.records) {
+            if (shouldStopAutomaticWork(config)) break;
             if (signal.aborted) throw createAbortError();
             try {
                 const result = await correctBadTagRecord(record, signal),
@@ -2375,82 +2938,189 @@ const SCRIPT_PARAMETERS = Object.freeze({
                         level: "warn",
                         message: `未知结果 ${result.status}`,
                     };
-                isTerminalBadTagStatus(result.status) && markKnown(record),
-                    logBadTagResult(outcomeMeta.level, record, outcomeMeta.message);
+                if (isTerminalBadTagStatus(result.status)) markKnown(record);
+                logBadTagResult(outcomeMeta.level, record, outcomeMeta.message);
             } catch (error) {
                 if (["AbortError", "RequestBudgetError"].includes(error.name)) throw error;
-                "BadTagVoteLockedError" === error.name
-                    ? (markKnown(record),
-                      logBadTagResult("skip", record, "站点已锁定历史赞成票，无法撤销或改踩"))
-                    : logBadTagResult("warn", record, `暂未处理：${error.message}`);
+                if (error.name === "BadTagVoteLockedError") {
+                    markKnown(record);
+                    logBadTagResult("skip", record, "站点已锁定历史赞成票，无法撤销或改踩");
+                } else {
+                    logBadTagResult("warn", record, `暂未处理：${error.message}`);
+                }
             }
-            await randomDelay(
-                RUNTIME_LIMITS.actionDelayMinMs,
-                RUNTIME_LIMITS.actionDelayMaxMs,
-                signal,
-            );
+            if (!shouldStopAutomaticWork(config)) {
+                await randomDelay(
+                    RUNTIME_LIMITS.actionDelayMinMs,
+                    RUNTIME_LIMITS.actionDelayMaxMs,
+                    signal,
+                );
+            }
         }
         const remaining = reviewKnown
             ? batch.remaining
-            : selectBadTagRecords(records, state, !1).length;
-        remaining && appendLog("info", `尚有 ${remaining} 条，将在后续周期继续处理`);
+            : selectBadTagRecords(records, state, false).length;
+        if (remaining) setStatus(`尚有 ${remaining} 条错误标签，将在后续周期继续处理`);
     }
     function isBadTagVoteLockedMessage(message) {
         return /vote can no longer be withdrawn/i.test(String(message || ""));
     }
-    function findPendingTagsInDocument(documentNode, tags) {
+    function findTagsNeedingUpvote(documentNode, tags, respectDownvotes) {
         const tagMap = new Map(parseGalleryTags(documentNode).map((tag) => [tag.tag, tag]));
         return tags.filter((tag) => {
             const state = tagMap.get(tag);
-            return !state || (!state.solid && !state.voted);
+            return (
+                !state ||
+                (!state.solid && !state.voted && !(respectDownvotes && state.downvoted))
+            );
         });
     }
     function reconcileTagVoteBatch(documentNode, tags) {
-        const failedTags = findPendingTagsInDocument(documentNode, tags);
+        const failedTags = findTagsNeedingUpvote(documentNode, tags, false);
         return {
             confirmed: tags.length - failedTags.length,
             failedTags: failedTags,
-            shouldRetry: !1,
+            shouldRetry: false,
         };
     }
+    function logCorrectionAudit(level, message, audit, action = audit?.action) {
+        if (!audit || !action) return;
+        const details = { ...audit, action: action },
+            key = `${details.targetUrl}|${details.tag}|${details.reason}`;
+        if (runtimeState.correctionLogKeys.has(key)) return;
+        runtimeState.correctionLogKeys.add(key);
+        appendLog(level, message, details.targetUrl, true, details);
+    }
+    function logTargetCorrectionPolicy(policy) {
+        const audit = policy.audit;
+        if (!audit || audit.action === "derived") return;
+        const messages = {
+                blacklisted: "黑名单已阻止标题派生 other:uncensored",
+                "below-minimum-pages": "目标页数不足，已跳过标题派生 other:uncensored",
+                conflict: "标题修正状态冲突，已拦截 other:uncensored",
+                unknown: "标题修正状态存在否定表达，已拦截 other:uncensored",
+                "classifier-error": "标题修正状态分类失败，已安全拦截 other:uncensored",
+                "source-blocked": "目标标题不兼容，已拦截来源的 other:uncensored",
+            },
+            level = ["blacklisted", "below-minimum-pages"].includes(audit.action)
+                ? "skip"
+                : audit.action === "classifier-error"
+                  ? "error"
+                  : "warn";
+        logCorrectionAudit(level, messages[audit.action], audit);
+    }
+    function logDownvotedTags(target, tagPlan, correctionAudit) {
+        const ordinaryTags = tagPlan.downvotedTags.filter(
+            (tag) => tag !== SENSITIVE_UNCENSORED_TAG,
+        );
+        if (ordinaryTags.length) {
+            appendLog(
+                "warn",
+                `尊重人工踩票，跳过 ${ordinaryTags.length} 个标签：${ordinaryTags.join(", ")}`,
+                target.url,
+                true,
+            );
+        }
+        if (tagPlan.downvotedTags.includes(SENSITIVE_UNCENSORED_TAG) && correctionAudit) {
+            logCorrectionAudit(
+                "warn",
+                "目标已有人工踩票，未重新赞成 other:uncensored",
+                {
+                    ...correctionAudit,
+                    reason: "当前用户已踩过该标签",
+                },
+                "user-downvoted",
+            );
+        }
+    }
+    function logDerivedTagResult(policy, isConfirmed, message = "") {
+        const audit = policy.audit;
+        if (!audit || audit.action !== "derived") return;
+        logCorrectionAudit(
+            isConfirmed ? "ok" : "warn",
+            isConfirmed
+                ? "已按明确标题确认 other:uncensored"
+                : `标题派生 other:uncensored 未确认${message ? `：${message}` : ""}`,
+            {
+                ...audit,
+                reason: isConfirmed
+                    ? "标题派生标签已通过写后验证"
+                    : message || "标题派生标签未通过写后验证",
+            },
+            isConfirmed ? "derived-confirmed" : "derived-failed",
+        );
+    }
     async function transferTagsToTarget(target, transferContext) {
-        const { current: current, union: union, config: config, signal: signal } = transferContext;
-        appendLog("info", `处理 ${target.language}：${target.url}`);
-        let snapshot = await fetchGallerySnapshot(target.url, signal);
-        if (snapshot.unavailable || !snapshot.gallery)
-            return (
-                appendLog("warn", `写入前画廊已失效：${target.url}`),
-                {
-                    submitted: 0,
-                    failed: union.length,
-                }
-            );
-        const refreshedGallery = validateGallery(snapshot.gallery),
+        const {
+                current: current,
+                union: union,
+                blacklist: blacklist,
+                sensitiveSourceUrls: sensitiveSourceUrls,
+                isTransferTarget: isTransferTarget,
+                targetPolicy: targetPolicy,
+                randomSkippedTags: randomSkippedTags,
+                config: config,
+                signal: signal,
+            } = transferContext,
+            cachedSnapshot = gallerySnapshotCache.get(target),
+            randomSkippedTagSet = randomSkippedTags || new Set();
+        setStatus(`处理 ${target.language}：${target.url}`);
+        let snapshot = cachedSnapshot || (await fetchGallerySnapshot(target.url, signal));
+        if (snapshot.unavailable || !snapshot.gallery) {
+            appendLog("warn", `写入前画廊已失效：${target.url}`);
+            return {
+                submitted: 0,
+                failed: isTransferTarget
+                    ? union.filter((tag) => !randomSkippedTagSet.has(tag)).length
+                    : 0,
+                derivedConsidered: false,
+                hadPlannedTags: false,
+            };
+        }
+        const targetGallery = validateGallery(snapshot.gallery),
             assessment =
-                target.url === current.url
+                cachedSnapshot || target.url === current.url
                     ? {
-                          accepted: !0,
+                          accepted: true,
                       }
-                    : assessCandidate(current, refreshedGallery, config);
-        if (!assessment.accepted)
-            return (
-                appendLog("skip", `写入前验证失败，跳过 ${target.url}（${assessment.reason}）`),
-                {
-                    submitted: 0,
-                    failed: 0,
-                }
+                    : assessCandidate(current, targetGallery, config);
+        if (!assessment.accepted) {
+            appendLog(
+                "skip",
+                `写入前验证失败，跳过 ${target.url}（${assessment.reason}）`,
+                target.url,
+                true,
             );
-        const tagPlan = planTargetTags(union, refreshedGallery.tags);
-        if (
-            (appendLog(
-                "info",
-                `待迁移 ${tagPlan.pending.length}，已实线 ${tagPlan.skippedSolid}，已投票 ${tagPlan.skippedVoted}`,
-            ),
-            !tagPlan.pending.length)
-        )
             return {
                 submitted: 0,
                 failed: 0,
+                derivedConsidered: false,
+                hadPlannedTags: false,
+            };
+        }
+        const policy =
+                targetPolicy ||
+                buildTargetTagSet(
+                    targetGallery,
+                    isTransferTarget ? union : [],
+                    blacklist,
+                    isTransferTarget ? sensitiveSourceUrls : [],
+                    targetGallery.pageCount >= config.minGalleryPages,
+                ),
+            effectiveTags = policy.tags.filter((tag) => !randomSkippedTagSet.has(tag)),
+            tagPlan = planTargetTags(effectiveTags, targetGallery.tags),
+            derivedTags = new Set(policy.derivedTags);
+        logTargetCorrectionPolicy(policy);
+        logDownvotedTags(targetGallery, tagPlan, policy.audit);
+        setStatus(
+            `待迁移 ${tagPlan.pending.length}，已实线 ${tagPlan.skippedSolid}，已投票 ${tagPlan.skippedVoted}，已踩 ${tagPlan.skippedDownvoted}`,
+        );
+        if (!tagPlan.pending.length)
+            return {
+                submitted: 0,
+                failed: 0,
+                derivedConsidered: policy.correction.state === "explicit-uncensored",
+                hadPlannedTags: Boolean(effectiveTags.length),
             };
         const tagInput = snapshot.doc.querySelector("#newtagfield"),
             maxLength = tagInput?.maxLength > 0 ? tagInput.maxLength : 200,
@@ -2459,279 +3129,367 @@ const SCRIPT_PARAMETERS = Object.freeze({
             failed = 0;
         for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
             if (signal.aborted) throw createAbortError();
-            const pendingTags = findPendingTagsInDocument(snapshot.doc, batches[batchIndex]);
+            const currentBatchPlan = planTargetTags(
+                    batches[batchIndex],
+                    parseGalleryTags(snapshot.doc),
+                ),
+                pendingTags = currentBatchPlan.pending,
+                derivedPendingTags = pendingTags.filter((tag) => derivedTags.has(tag)),
+                ordinaryPendingTags = pendingTags.filter((tag) => !derivedTags.has(tag));
+            logDownvotedTags(snapshot.gallery || targetGallery, currentBatchPlan, policy.audit);
             if (!pendingTags.length) continue;
             if (!snapshot.writeContext) {
-                (failed += pendingTags.length),
-                    appendLog("warn", `直连投票凭据不可用，未提交：${pendingTags.join(", ")}`);
+                failed += ordinaryPendingTags.length;
+                appendLog("warn", `直连投票凭据不可用，未提交：${pendingTags.join(", ")}`);
+                if (derivedPendingTags.length)
+                    logDerivedTagResult(policy, false, "直连投票凭据不可用");
                 continue;
             }
-            appendLog(
-                "info",
+            setStatus(
                 `直连提交 ${batchIndex + 1}/${batches.length}（${pendingTags.length} 个）`,
             );
-            const voteResult = await submitTagVoteAndVerify(snapshot, pendingTags, 1, signal);
+            let voteResult;
+            try {
+                voteResult = await submitTagVoteAndVerify(snapshot, pendingTags, 1, signal);
+            } catch (error) {
+                if (["AbortError", "RequestBudgetError"].includes(error.name)) throw error;
+                failed += ordinaryPendingTags.length;
+                if (ordinaryPendingTags.length) {
+                    appendLog(
+                        "warn",
+                        `标签写入或验证失败：${ordinaryPendingTags.join(", ")}：${error.message}`,
+                        targetGallery.url,
+                    );
+                }
+                if (derivedPendingTags.length) logDerivedTagResult(policy, false, error.message);
+                continue;
+            }
             snapshot = voteResult.snapshot;
             const reconciliation = snapshot.unavailable
                 ? {
                       confirmed: 0,
                       failedTags: pendingTags,
-                      shouldRetry: !1,
+                      shouldRetry: false,
                   }
                 : reconcileTagVoteBatch(snapshot.doc, pendingTags);
-            if (
-                ((submitted += reconciliation.confirmed),
-                (failed += reconciliation.failedTags.length),
-                reconciliation.failedTags.length)
-            ) {
+            const failedTagSet = new Set(reconciliation.failedTags),
+                confirmedTags = pendingTags.filter((tag) => !failedTagSet.has(tag)),
+                failedDerivedTags = reconciliation.failedTags.filter((tag) => derivedTags.has(tag)),
+                failedOrdinaryTags = reconciliation.failedTags.filter(
+                    (tag) => !derivedTags.has(tag),
+                );
+            submitted += confirmedTags.length;
+            failed += failedOrdinaryTags.length;
+            if (confirmedTags.some((tag) => derivedTags.has(tag))) {
+                logDerivedTagResult(policy, true);
+            }
+            if (failedDerivedTags.length) {
+                logDerivedTagResult(
+                    policy,
+                    false,
+                    voteResult.voteError?.message || "写后仍未观察到标签",
+                );
+            }
+            if (failedOrdinaryTags.length) {
                 const errorSuffix = voteResult.voteError ? `：${voteResult.voteError.message}` : "";
                 appendLog(
                     "warn",
-                    `写后复核仍未确认（本轮不重复投票）：${reconciliation.failedTags.join(", ")}${errorSuffix}`,
+                    `写后复核仍未确认（本轮不重复投票）：${failedOrdinaryTags.join(", ")}${errorSuffix}`,
+                    targetGallery.url,
                 );
             }
-            batchIndex + 1 < batches.length &&
-                (await randomDelay(
+            if (batchIndex + 1 < batches.length) {
+                await randomDelay(
                     RUNTIME_LIMITS.actionDelayMinMs,
                     RUNTIME_LIMITS.actionDelayMaxMs,
                     signal,
-                ));
+                );
+            }
         }
         return {
             submitted: submitted,
             failed: failed,
+            derivedConsidered: policy.correction.state === "explicit-uncensored",
+            hadPlannedTags: Boolean(effectiveTags.length),
         };
     }
-    async function executeTransferPlan(runId, currentGallery, config, signal) {
-        if (
-            (appendLog(
-                "info",
-                `种子：${currentGallery.language}，${currentGallery.pageCount} 页，${currentGallery.tags.length} 个标签`,
-            ),
-            currentGallery.pageCount < config.minGalleryPages)
-        )
-            return (
-                appendLog("skip", `画廊少于 ${config.minGalleryPages} 页，跳过`),
-                {
-                    status: "short",
-                    galleries: [currentGallery],
-                    submitted: 0,
-                    failed: 0,
-                }
-            );
-        setStatus("搜索并验证其他语言版本");
-        const candidates = await (async function (currentGallery, config, signal) {
-            const queries = buildSearchQueries(currentGallery),
-                candidatesByUrl = new Map(),
-                sameLanguageUrls = new Set();
-            async function runStage(stage) {
-                for (const query of queries.filter((query) => query.stage === stage)) {
-                    if (signal.aborted) throw createAbortError();
-                    appendLog("info", `搜索 ${query.label}`);
-                    try {
-                        const searchResult = await fetchSearchQueryResults(
-                            query,
-                            config.maxSearchPages,
-                            signal,
-                            currentGallery,
-                            config,
-                        );
-                        for (const candidate of searchResult.results) {
-                            if (candidate.url === currentGallery.url) continue;
-                            if (hasSameExplicitLanguage(currentGallery, candidate)) {
-                                sameLanguageUrls.add(candidate.url);
-                                continue;
-                            }
-                            const existingCandidate = candidatesByUrl.get(candidate.url);
-                            existingCandidate
-                                ? (existingCandidate.matchedQueries = Array.from(
-                                      new Set([
-                                          ...existingCandidate.matchedQueries,
-                                          ...candidate.matchedQueries,
-                                      ]),
-                                  ))
-                                : candidatesByUrl.set(candidate.url, candidate);
-                        }
-                    } catch (error) {
-                        if (["AbortError", "RequestBudgetError"].includes(error.name)) throw error;
-                        appendLog("warn", `搜索失败：${error.message}`);
-                    }
-                }
-            }
-            await runStage("english"),
-                shouldRunJapaneseSearch(currentGallery, candidatesByUrl.values(), config) &&
-                    (await runStage("japanese")),
-                appendLog(
-                    "info",
-                    `搜索得到 ${candidatesByUrl.size} 个去重候选` +
-                        (sameLanguageUrls.size
-                            ? `，提前跳过同语言 ${sameLanguageUrls.size} 个`
-                            : ""),
-                );
-            const previewCandidates = [];
-            for (const candidate of candidatesByUrl.values()) {
-                const assessment = assessCandidate(currentGallery, candidate, config);
-                assessment.accepted
-                    ? previewCandidates.push({
-                          ...candidate,
-                          assessment: assessment,
-                      })
-                    : appendLog(
-                          "skip",
-                          `拒绝：${truncateLogTitle(candidate.title)}（${assessment.reason}）`,
-                      );
-            }
-            const detailCandidates = [];
-            if ("newest" === config.transferDirection)
-                detailCandidates.push(...previewCandidates),
-                    appendLog(
-                        "info",
-                        `单向模式将完整读取 ${detailCandidates.length} 个初筛合规候选`,
-                    );
-            else {
-                const candidatesByLanguage = new Map();
-                for (const candidate of previewCandidates) {
-                    const language = candidate.language || "unknown";
-                    candidatesByLanguage.has(language) || candidatesByLanguage.set(language, []),
-                        candidatesByLanguage.get(language).push(candidate);
-                }
-                for (const languageCandidates of candidatesByLanguage.values()) {
-                    languageCandidates.sort(
-                        (left, right) => right.assessment.score - left.assessment.score,
-                    ),
-                        detailCandidates.push(
-                            ...languageCandidates.slice(
-                                0,
-                                RUNTIME_LIMITS.detailCandidatesPerLanguage,
-                            ),
-                        );
-                    for (const candidate of languageCandidates.slice(
-                        RUNTIME_LIMITS.detailCandidatesPerLanguage,
-                    ))
-                        appendLog(
-                            "skip",
-                            `暂不读取低分候选：${truncateLogTitle(candidate.title)}（评分 ${candidate.assessment.score}）`,
-                        );
-                }
-            }
-            const fullCandidates = [];
-            for (const candidate of detailCandidates) {
+    // 6. 搜索管线与迁移编排
+    async function discoverSearchCandidates(currentGallery, config, signal) {
+        const queries = buildSearchQueries(currentGallery),
+            candidatesByUrl = new Map(),
+            sameLanguageUrls = new Set();
+        async function runQueryStage(stage) {
+            for (const query of queries.filter((candidateQuery) => candidateQuery.stage === stage)) {
                 if (signal.aborted) throw createAbortError();
+                setStatus(`搜索 ${query.label}`);
                 try {
-                    const gallery = parseGalleryDocument(
-                        await fetchDocument(candidate.url, signal),
-                        candidate.url,
+                    const searchResult = await fetchSearchQueryResults(
+                        query,
+                        config.maxSearchPages,
+                        signal,
+                        currentGallery,
+                        config,
                     );
-                    if (
-                        ((gallery.matchedQueries = candidate.matchedQueries),
-                        !gallery.titleRefs.some(Boolean) || !Number.isInteger(gallery.pageCount))
-                    )
-                        throw new Error("画廊元数据不完整");
-                    const assessment = assessCandidate(currentGallery, gallery, config);
-                    assessment.accepted
-                        ? gallery.language === currentGallery.language &&
-                          "unknown" !== currentGallery.language
-                            ? appendLog(
-                                  "skip",
-                                  `二次拒绝同语言：${truncateLogTitle(gallery.titleGn)}`,
-                              )
-                            : fullCandidates.push({
-                                  ...gallery,
-                                  assessment: assessment,
-                              })
-                        : appendLog(
-                              "skip",
-                              `二次拒绝：${truncateLogTitle(gallery.titleGn)}（${assessment.reason}）`,
-                          );
+                    for (const candidate of searchResult.results) {
+                        if (candidate.url === currentGallery.url) continue;
+                        if (hasSameExplicitLanguage(currentGallery, candidate)) {
+                            sameLanguageUrls.add(candidate.url);
+                            continue;
+                        }
+                        const existingCandidate = candidatesByUrl.get(candidate.url);
+                        existingCandidate
+                            ? (existingCandidate.matchedQueries = Array.from(
+                                  new Set([
+                                      ...existingCandidate.matchedQueries,
+                                      ...candidate.matchedQueries,
+                                  ]),
+                              ))
+                            : candidatesByUrl.set(candidate.url, candidate);
+                    }
                 } catch (error) {
                     if (["AbortError", "RequestBudgetError"].includes(error.name)) throw error;
-                    appendLog("warn", `无法读取候选 ${candidate.url}：${error.message}`);
+                    appendLog("warn", `搜索失败：${error.message}`);
                 }
-                await randomDelay(
-                    RUNTIME_LIMITS.discoveryDelayMinMs,
-                    RUNTIME_LIMITS.discoveryDelayMaxMs,
-                    signal,
-                );
             }
-            const selection = selectTransferCandidates(
-                fullCandidates,
-                config.transferDirection,
-                config.minCandidateScoreGap,
+        }
+        await runQueryStage("english");
+        shouldRunJapaneseSearch(currentGallery, candidatesByUrl.values(), config) &&
+            (await runQueryStage("japanese"));
+        setStatus(
+            `搜索得到 ${candidatesByUrl.size} 个去重候选` +
+                (sameLanguageUrls.size ? `，提前跳过同语言 ${sameLanguageUrls.size} 个` : ""),
+        );
+        return Array.from(candidatesByUrl.values());
+    }
+    function prefilterSearchCandidates(currentGallery, candidates, config) {
+        const acceptedCandidates = [];
+        for (const candidate of candidates) {
+            const assessment = assessCandidate(currentGallery, candidate, config);
+            if (assessment.accepted) {
+                acceptedCandidates.push({ ...candidate, assessment: assessment });
+            }
+        }
+        return acceptedCandidates;
+    }
+    function chooseProgressiveDetailCandidates(candidates, config) {
+        if (config.transferDirection === "newest") {
+            setStatus(`单向模式将读取 ${candidates.length} 个初筛候选`);
+            return [...candidates];
+        }
+        const candidatesByLanguage = new Map(),
+            selectedCandidates = [];
+        for (const candidate of candidates) {
+            const language = candidate.language || "unknown";
+            candidatesByLanguage.has(language) || candidatesByLanguage.set(language, []);
+            candidatesByLanguage.get(language).push(candidate);
+        }
+        for (const languageCandidates of candidatesByLanguage.values()) {
+            languageCandidates.sort(
+                (leftCandidate, rightCandidate) =>
+                    rightCandidate.assessment.score - leftCandidate.assessment.score,
             );
-            for (const candidate of selection.rejected)
-                appendLog(
-                    "skip",
-                    `最终拒绝：${truncateLogTitle(candidate.titleGn)}（${candidate.rejectionReason}）`,
-                );
-            return selection.accepted;
-        })(currentGallery, config, signal);
-        if (!candidates.length)
-            return (
-                appendLog("skip", "没有通过完整复核的其他语言画廊"),
-                {
-                    status: "no-related",
-                    galleries: [currentGallery],
-                    submitted: 0,
-                    failed: 0,
+            selectedCandidates.push(
+                ...languageCandidates.slice(0, RUNTIME_LIMITS.detailCandidatesPerLanguage),
+            );
+        }
+        return selectedCandidates;
+    }
+    async function loadProgressiveCandidateDetails(currentGallery, candidates, config, signal) {
+        const fullCandidates = [];
+        for (const candidate of chooseProgressiveDetailCandidates(candidates, config)) {
+            if (signal.aborted) throw createAbortError();
+            try {
+                const snapshot = await fetchGallerySnapshot(candidate.url, signal);
+                if (snapshot.unavailable || !snapshot.gallery)
+                    throw new Error("候选画廊已失效");
+                const gallery = snapshot.gallery;
+                gallery.matchedQueries = candidate.matchedQueries;
+                if (!gallery.titleRefs.some(Boolean) || !Number.isInteger(gallery.pageCount))
+                    throw new Error("画廊元数据不完整");
+                const assessment = assessCandidate(currentGallery, gallery, config);
+                if (
+                    assessment.accepted &&
+                    !(gallery.language === currentGallery.language &&
+                        currentGallery.language !== "unknown")
+                ) {
+                    gallery.assessment = assessment;
+                    fullCandidates.push(gallery);
                 }
+            } catch (error) {
+                if (["AbortError", "RequestBudgetError"].includes(error.name)) throw error;
+                appendLog("warn", `无法读取候选 ${candidate.url}：${error.message}`);
+            }
+            await randomDelay(
+                RUNTIME_LIMITS.discoveryDelayMinMs,
+                RUNTIME_LIMITS.discoveryDelayMaxMs,
+                signal,
             );
-        for (const candidate of candidates)
-            appendLog(
-                "ok",
-                `接受 ${candidate.language}：${candidate.pageCount} 页，${candidate.assessment.reason}`,
-            );
-        const galleries = [currentGallery, ...candidates],
-            transferPlan = buildTransferPlan(galleries, config.transferDirection),
-            tagUnion = buildTransferTagUnion(
-                transferPlan.sources,
-                config.mode,
-                compileBlacklist(config.blacklist),
-            );
-        if (
-            (transferPlan.newest &&
-                appendLog(
-                    "info",
-                    `单向迁移：综合 ${transferPlan.sources.length} 个旧画廊 → 最新画廊 ${galleryIdFromUrl(transferPlan.newest.url)}`,
-                ),
-            appendLog(
-                "info",
-                `迁移集合 ${tagUnion.length} 个标签（${"solid" === config.mode ? "仅实线" : "全部"}；${transferPlan.targets.length} 个目标）`,
-            ),
-            !tagUnion.length)
-        )
+        }
+        return fullCandidates;
+    }
+    function selectFinalSearchCandidates(candidates, config) {
+        const selection = selectTransferCandidates(
+            candidates,
+            config.transferDirection,
+            config.minCandidateScoreGap,
+        );
+        return selection.accepted;
+    }
+    function announceSearchPhase(phase) {
+        setStatus(`搜索阶段：${phase}`);
+    }
+    async function runSearchPipeline(currentGallery, config, signal) {
+        announceSearchPhase(SEARCH_PHASES.discovery);
+        const discoveredCandidates = await SEARCH_PIPELINE.discover(
+            currentGallery,
+            config,
+            signal,
+        );
+        announceSearchPhase(SEARCH_PHASES.prefilter);
+        const prefilteredCandidates = SEARCH_PIPELINE.prefilter(
+            currentGallery,
+            discoveredCandidates,
+            config,
+        );
+        announceSearchPhase(SEARCH_PHASES.progressiveDetails);
+        const detailedCandidates = await SEARCH_PIPELINE.loadProgressiveDetails(
+            currentGallery,
+            prefilteredCandidates,
+            config,
+            signal,
+        );
+        announceSearchPhase(SEARCH_PHASES.finalSelection);
+        return SEARCH_PIPELINE.selectFinal(detailedCandidates, config);
+    }
+    async function executeTransferPlan(runId, currentGallery, config, signal) {
+        setStatus(
+            `种子：${currentGallery.language}，${currentGallery.pageCount} 页，${currentGallery.tags.length} 个标签`,
+        );
+        if (currentGallery.pageCount < config.minGalleryPages) {
+            appendLog("skip", `画廊少于 ${config.minGalleryPages} 页，跳过`, "", true);
             return {
-                status: "empty",
-                galleries: galleries,
+                status: "short",
+                galleries: [currentGallery],
                 submitted: 0,
                 failed: 0,
             };
-        let submitted = 0,
-            failed = 0;
-        const transferContext = {
-            current: currentGallery,
-            union: tagUnion,
-            config: config,
-            signal: signal,
-        };
-        for (let targetIndex = 0; targetIndex < transferPlan.targets.length; targetIndex++) {
-            if (signal.aborted || runId !== runtimeState.runId) throw createAbortError();
-            const target = transferPlan.targets[targetIndex];
-            setStatus(`迁移 ${targetIndex + 1}/${transferPlan.targets.length}：${target.language}`);
-            const result = await transferTagsToTarget(target, transferContext);
-            (submitted += result.submitted), (failed += result.failed);
         }
-        return (
+        const candidates = await SEARCH_PIPELINE.run(currentGallery, config, signal),
+            galleries = [currentGallery, ...candidates],
+            transferPlan = candidates.length
+                ? buildTransferPlan(galleries, config.transferDirection)
+                : { sources: [], targets: [], newest: null },
+            blacklist = compileBlacklist(config.blacklist),
+            tagUnion = buildTransferTagUnion(
+                transferPlan.sources,
+                config.mode,
+                blacklist,
+            ),
+            sensitiveSourceUrls = tagUnion.includes(SENSITIVE_UNCENSORED_TAG)
+                ? collectTagSourceUrls(
+                      transferPlan.sources,
+                      SENSITIVE_UNCENSORED_TAG,
+                      config.mode,
+                  )
+                : [],
+            transferTargetUrls = new Set(transferPlan.targets.map((target) => target.url)),
+            targets = [],
+            targetUrls = new Set();
+        for (const target of [currentGallery, ...transferPlan.targets]) {
+            if (!targetUrls.has(target.url)) {
+                targetUrls.add(target.url);
+                targets.push(target);
+            }
+        }
+        const plannedTargets = targets.map((target) => {
+                const isTransferTarget = transferTargetUrls.has(target.url),
+                    policy = buildTargetTagSet(
+                        target,
+                        isTransferTarget ? tagUnion : [],
+                        blacklist,
+                        isTransferTarget ? sensitiveSourceUrls : [],
+                        target.pageCount >= config.minGalleryPages,
+                    );
+                return {
+                    target: target,
+                    isTransferTarget: isTransferTarget,
+                    policy: policy,
+                    pendingTags: planTargetTags(policy.tags, target.tags).pending,
+                };
+            }),
+            randomSkipPlan = planRandomTagSkip(
+                plannedTargets.flatMap((targetPlan) => targetPlan.pendingTags),
+                config,
+            ),
+            randomSkippedTags = new Set(randomSkipPlan.skippedTags);
+        if (randomSkipPlan.actualCount) {
+            appendLog(
+                "skip",
+                `随机省略 ${randomSkipPlan.actualCount} 个标签`,
+                currentGallery.url,
+                true,
+                null,
+                {
+                    rangeMin: config.randomTagSkipMin,
+                    rangeMax: config.randomTagSkipMax,
+                    eligibleCount: randomSkipPlan.eligibleCount,
+                    skippedTags: randomSkipPlan.skippedTags,
+                },
+            );
+        }
+        setStatus(
+            `迁移集合 ${tagUnion.length} 个标签（${config.mode === "solid" ? "仅实线" : "全部"}；${targets.length} 个目标；随机省略 ${randomSkipPlan.actualCount}）`,
+        );
+        let submitted = 0,
+            failed = 0,
+            derivedConsidered = false,
+            hadPlannedTags = false;
+        for (let targetIndex = 0; targetIndex < plannedTargets.length; targetIndex++) {
+            if (signal.aborted || runId !== runtimeState.runId) throw createAbortError();
+            const targetPlan = plannedTargets[targetIndex],
+                target = targetPlan.target;
+            setStatus(`迁移 ${targetIndex + 1}/${targets.length}：${target.language}`);
+            const result = await transferTagsToTarget(target, {
+                current: currentGallery,
+                union: tagUnion,
+                blacklist: blacklist,
+                sensitiveSourceUrls: sensitiveSourceUrls,
+                isTransferTarget: targetPlan.isTransferTarget,
+                targetPolicy: targetPlan.policy,
+                randomSkippedTags: randomSkippedTags,
+                config: config,
+                signal: signal,
+            });
+            submitted += result.submitted;
+            failed += result.failed;
+            derivedConsidered ||= result.derivedConsidered;
+            hadPlannedTags ||= result.hadPlannedTags;
+        }
+        if (!candidates.length) {
+            appendLog("skip", "没有通过完整复核的其他语言画廊", currentGallery.url, true);
+        } else {
             appendLog(
                 failed ? "warn" : "ok",
                 `迁移结束：确认 ${submitted} 个，未确认 ${failed} 个`,
-            ),
-            {
-                status: failed ? "partial" : "completed",
-                galleries: galleries,
-                submitted: submitted,
-                failed: failed,
-            }
-        );
+                "",
+                true,
+            );
+        }
+        return {
+            status: failed
+                ? "partial"
+                : !candidates.length
+                  ? derivedConsidered
+                      ? "derived-only"
+                      : "no-related"
+                  : hadPlannedTags
+                    ? "completed"
+                    : "empty",
+            galleries: galleries,
+            submitted: submitted,
+            failed: failed,
+            randomlySkipped: randomSkipPlan.actualCount,
+        };
     }
     function validateGallery(gallery) {
         if (
@@ -2744,86 +3502,101 @@ const SCRIPT_PARAMETERS = Object.freeze({
     }
     async function processCurrentGallery(runId, config, signal) {
         setStatus("读取当前画廊");
-        const currentGallery = validateGallery(parseGalleryDocument(document, location.href)),
-            result = await executeTransferPlan(runId, currentGallery, config, signal);
+        const currentGallery = validateGallery(parseGalleryDocument(document, location.href));
+        rememberGallerySnapshot({
+            url: currentGallery.url,
+            status: 200,
+            unavailable: false,
+            doc: document,
+            gallery: currentGallery,
+            writeContext: parseGalleryWriteContext(document, currentGallery.url),
+        });
+        const result = await executeTransferPlan(runId, currentGallery, config, signal);
         setStatus(
-            "no-related" === result.status
+            result.status === "no-related"
                 ? "完成：没有可迁移目标"
+                : result.status === "derived-only"
+                  ? `完成：仅标题派生，确认 ${result.submitted}`
                 : `完成：确认 ${result.submitted}，未确认 ${result.failed}`,
         );
     }
-    async function processHomepage(runId, config, signal) {
-        const scanResult = await (async function (config, signal) {
-            let homeState = loadHomeState();
-            if (!homeState.initializedAt) {
-                const mergeResult = mergeHomepageResults(
-                    homeState,
-                    parseSearchResults(document, location.origin),
-                    config,
-                );
-                return (
-                    (homeState = saveHomeState(mergeResult.home)),
-                    appendLog(
-                        "info",
-                        `主页基线已建立（${mergeResult.baselineCount} 个画廊），未回溯历史`,
-                    ),
-                    {
-                        home: homeState,
-                        initialized: !0,
-                    }
-                );
-            }
-            const seenGids = new Set(homeState.seenGids);
-            let nextUrl = canonicalHomepageUrl(homeState.scanCursor) || `${location.origin}/`,
-                savedCursor = "",
-                reachedSeenGallery = !1;
-            const results = [];
-            for (let pageIndex = 0; pageIndex < config.homeScanPages && nextUrl; pageIndex++) {
-                const documentNode = await fetchDocument(nextUrl, signal),
-                    pageResults = parseSearchResults(documentNode, location.origin);
-                if (
-                    (results.push(...pageResults),
-                    pageResults.some((result) => seenGids.has(galleryIdFromUrl(result.url))))
-                ) {
-                    reachedSeenGallery = !0;
-                    break;
-                }
-                const nextHref = documentNode.querySelector("#dnext[href]")?.getAttribute("href");
-                (savedCursor = canonicalHomepageUrl(
-                    nextHref ? new URL(nextHref, nextUrl).href : "",
-                )),
-                    (nextUrl = savedCursor),
-                    nextUrl &&
-                        (await randomDelay(
-                            RUNTIME_LIMITS.discoveryDelayMinMs,
-                            RUNTIME_LIMITS.discoveryDelayMaxMs,
-                            signal,
-                        ));
-            }
-            const mergeResult = mergeHomepageResults(homeState, results, config);
-            return (
-                (homeState = mergeResult.home),
-                (homeState.scanCursor = reachedSeenGallery ? "" : savedCursor),
-                (homeState = saveHomeState(homeState)),
-                appendLog(
-                    mergeResult.queued ? "ok" : "skip",
-                    `主页扫描：新增队列 ${mergeResult.queued}，短画廊跳过 ${mergeResult.skippedShort}`,
-                ),
-                homeState.scanCursor &&
-                    appendLog("warn", "新增画廊超过本轮扫描上限，已保存翻页游标供下轮继续"),
-                {
-                    home: homeState,
-                    initialized: !1,
-                }
+    async function scanHomepage(config, signal) {
+        let homeState = loadHomeState();
+        if (!homeState.initializedAt) {
+            const mergeResult = mergeHomepageResults(
+                homeState,
+                parseSearchResults(document, location.origin),
+                config,
             );
-        })(config, signal);
-        if (scanResult.initialized) return void setStatus("主页基线已建立；等待新画廊");
+            homeState = saveHomeState(mergeResult.home);
+            appendLog(
+                "info",
+                `主页基线已建立（${mergeResult.baselineCount} 个画廊），未回溯历史`,
+                "",
+                true,
+            );
+            return { home: homeState, initialized: true };
+        }
+
+        const seenGids = new Set(homeState.seenGids);
+        let nextUrl = canonicalHomepageUrl(homeState.scanCursor) || `${location.origin}/`;
+        let savedCursor = "";
+        let reachedSeenGallery = false;
+        const results = [];
+        for (let pageIndex = 0; pageIndex < config.homeScanPages && nextUrl; pageIndex++) {
+            const documentNode = await fetchDocument(nextUrl, signal);
+            const pageResults = parseSearchResults(documentNode, location.origin);
+            results.push(...pageResults);
+            if (pageResults.some((result) => seenGids.has(galleryIdFromUrl(result.url)))) {
+                reachedSeenGallery = true;
+                break;
+            }
+            const nextHref = documentNode.querySelector("#dnext[href]")?.getAttribute("href");
+            savedCursor = canonicalHomepageUrl(nextHref ? new URL(nextHref, nextUrl).href : "");
+            nextUrl = savedCursor;
+            if (shouldStopAutomaticWork(config)) break;
+            if (nextUrl) {
+                await randomDelay(
+                    RUNTIME_LIMITS.discoveryDelayMinMs,
+                    RUNTIME_LIMITS.discoveryDelayMaxMs,
+                    signal,
+                );
+            }
+        }
+        const mergeResult = mergeHomepageResults(homeState, results, config);
+        homeState = mergeResult.home;
+        homeState.scanCursor = reachedSeenGallery ? "" : savedCursor;
+        homeState = saveHomeState(homeState);
+        appendLog(
+            mergeResult.queued ? "ok" : "skip",
+            `主页扫描：新增队列 ${mergeResult.queued}，短画廊跳过 ${mergeResult.skippedShort}`,
+            "",
+            true,
+        );
+        if (homeState.scanCursor) {
+            appendLog("warn", "新增画廊超过本轮扫描上限，已保存翻页游标供下轮继续");
+        }
+        return { home: homeState, initialized: false };
+    }
+    async function processHomepage(runId, config, signal) {
+        const scanResult = await scanHomepage(config, signal);
+        if (scanResult.initialized) {
+            setStatus("主页基线已建立；等待新画廊");
+            return;
+        }
+        if (shouldStopAutomaticWork(config)) {
+            setStatus("已到自动运行结束时间，主页扫描结果已保存");
+            return;
+        }
         let homeState = scanResult.home;
-        if (!findReadyHomeJob(homeState))
-            return void setStatus(`主页扫描完成：队列 ${homeState.queue.length}`);
+        if (!findReadyHomeJob(homeState)) {
+            setStatus(`主页扫描完成：队列 ${homeState.queue.length}`);
+            return;
+        }
         let checkedCount = 0,
             writtenCount = 0;
         for (;;) {
+            if (shouldStopAutomaticWork(config)) break;
             const job = findReadyHomeJob(homeState);
             if (!job) break;
             if (signal.aborted || runId !== runtimeState.runId) throw createAbortError();
@@ -2834,36 +3607,42 @@ const SCRIPT_PARAMETERS = Object.freeze({
                 );
                 break;
             }
-            beginHomeJob(homeState, job.gid),
-                setStatus(`主页连续任务 ${checkedCount + 1}：${job.gid}`);
+            beginHomeJob(homeState, job.gid);
+            setStatus(`主页连续任务 ${checkedCount + 1}：${job.gid}`);
             try {
-                const gallery = validateGallery(
-                        parseGalleryDocument(await fetchDocument(job.url, signal), job.url),
-                    ),
+                const snapshot = await fetchGallerySnapshot(job.url, signal);
+                if (snapshot.unavailable || !snapshot.gallery)
+                    throw new Error("主页任务画廊已失效");
+                const gallery = validateGallery(snapshot.gallery),
                     result = await executeTransferPlan(runId, gallery, config, signal);
                 checkedCount++;
                 const disposition = getHomeJobDisposition(result);
-                "retry" === disposition.action
-                    ? ((homeState = retryHomeJob(homeState, job.gid, disposition.reason)),
-                      appendLog("warn", `${job.gid} 将延迟重试：${disposition.reason}`))
-                    : ((homeState = completeHomeGroup(homeState, result.galleries)),
-                      result.submitted > 0 && writtenCount++,
-                      disposition.reason &&
-                          appendLog(
-                              "skip",
-                              `${job.gid} 已检查：${disposition.reason}，任务已移出队列`,
-                          )),
-                    (homeState = saveHomeState(homeState));
+                if (disposition.action === "retry") {
+                    homeState = retryHomeJob(homeState, job.gid, disposition.reason);
+                    appendLog("warn", `${job.gid} 将延迟重试：${disposition.reason}`);
+                } else {
+                    homeState = completeHomeGroup(homeState, result.galleries);
+                    if (result.submitted > 0) writtenCount++;
+                    if (disposition.reason) {
+                        appendLog(
+                            "skip",
+                            `${job.gid} 已检查：${disposition.reason}，任务已移出队列`,
+                            job.url,
+                            true,
+                        );
+                    }
+                }
+                homeState = saveHomeState(homeState);
             } catch (error) {
-                if ("AbortError" === error.name) throw error;
-                if ("RequestBudgetError" === error.name) {
-                    preserveHomeJobAfterBudget(homeState, job.gid),
-                        appendLog("info", `${job.gid} 因本轮请求预算到达边界而保留，下一轮继续`);
+                if (error.name === "AbortError") throw error;
+                if (error.name === "RequestBudgetError") {
+                    preserveHomeJobAfterBudget(homeState, job.gid);
+                    setStatus(`${job.gid} 因请求预算到达边界而保留，下一轮继续`);
                     break;
                 }
-                (homeState = retryHomeJob(homeState, job.gid, error)),
-                    (homeState = saveHomeState(homeState)),
-                    appendLog("warn", `${job.gid} 处理失败：${error.message}`);
+                homeState = retryHomeJob(homeState, job.gid, error);
+                homeState = saveHomeState(homeState);
+                appendLog("warn", `${job.gid} 处理失败：${error.message}`);
             }
         }
         setStatus(
@@ -2871,16 +3650,7 @@ const SCRIPT_PARAMETERS = Object.freeze({
         );
     }
     function setStatus(message) {
-        runtimeState.ui?.status && (runtimeState.ui.status.textContent = message);
-    }
-    function updateHomeSummary(homeState) {
-        if (!runtimeState.ui?.homeSummary || "home" !== runtimeState.pageMode) return;
-        const state = homeState || loadHomeState(),
-            nextRunLabel =
-                state.nextRunAt > Date.now()
-                    ? new Date(state.nextRunAt).toLocaleTimeString()
-                    : "未安排";
-        runtimeState.ui.homeSummary.textContent = `队列 ${state.queue.length} · 已见 ${state.seenGids.length} · 下次 ${nextRunLabel}`;
+        if (runtimeState.ui?.status) runtimeState.ui.status.textContent = message;
     }
     function sanitizeLogUrl(url) {
         if (!url) return "";
@@ -2891,28 +3661,176 @@ const SCRIPT_PARAMETERS = Object.freeze({
             return "";
         }
     }
-    function createLogEntry(level, message, galleryUrl = "", date = new Date()) {
-        const timestamp = date instanceof Date ? date : new Date(date);
+    function sanitizeCorrectionLogDetails(details) {
+        if (!details) return null;
+        const normalizeList = (values) =>
+                Array.from(
+                    new Set((Array.isArray(values) ? values : []).map(normalizeWhitespace).filter(Boolean)),
+                ),
+            targetUrl = sanitizeLogUrl(details.targetUrl),
+            tag = normalizeTag(details.tag);
+        if (!targetUrl || !tag) return null;
         return {
-            timestamp: timestamp.toISOString(),
-            localTime: timestamp.toLocaleTimeString(),
-            level: String(level || "info"),
-            message: String(message || ""),
-            galleryUrl: sanitizeLogUrl(galleryUrl),
+            tag: tag,
+            targetUrl: targetUrl,
+            titleGn: normalizeWhitespace(details.titleGn),
+            titleGj: normalizeWhitespace(details.titleGj),
+            state: normalizeWhitespace(details.state),
+            action: normalizeWhitespace(details.action),
+            reason: normalizeWhitespace(details.reason),
+            positiveMarkers: normalizeList(details.positiveMarkers),
+            negativeMarkers: normalizeList(details.negativeMarkers),
+            negatedMarkers: normalizeList(details.negatedMarkers),
+            sourceUrls: Array.from(
+                new Set((details.sourceUrls || []).map(sanitizeLogUrl).filter(Boolean)),
+            ),
         };
     }
-    function trimLogEntries(entries, limit = 1e3) {
+    function sanitizeRandomSkipLogDetails(details) {
+        if (!details) return null;
+        const skippedTags = Array.from(
+                new Set((details.skippedTags || []).map(normalizeTag).filter(Boolean)),
+            ).sort(),
+            requestedRangeMin = clampInteger(details.rangeMin, 0, 0, 1_000),
+            requestedRangeMax = clampInteger(details.rangeMax, 0, 0, 1_000);
+        if (!skippedTags.length) return null;
+        return {
+            rangeMin: Math.min(requestedRangeMin, requestedRangeMax),
+            rangeMax: Math.max(requestedRangeMin, requestedRangeMax),
+            eligibleCount: Math.max(
+                skippedTags.length,
+                Math.floor(Number(details.eligibleCount) || 0),
+            ),
+            actualCount: skippedTags.length,
+            skippedTags: skippedTags,
+        };
+    }
+    function createLogEntry(
+        level,
+        message,
+        galleryUrl = "",
+        date = new Date(),
+        correction = null,
+        randomSkip = null,
+    ) {
+        const timestamp = date instanceof Date ? date : new Date(date),
+            entry = {
+                timestamp: timestamp.toISOString(),
+                localTime: timestamp.toLocaleTimeString(),
+                level: String(level || "info"),
+                message: String(message || ""),
+                galleryUrl: sanitizeLogUrl(galleryUrl),
+            },
+            sanitizedCorrection = sanitizeCorrectionLogDetails(correction),
+            sanitizedRandomSkip = sanitizeRandomSkipLogDetails(randomSkip);
+        if (sanitizedCorrection) entry.correction = sanitizedCorrection;
+        if (sanitizedRandomSkip) entry.randomSkip = sanitizedRandomSkip;
+        return entry;
+    }
+    function trimLogEntries(entries, limit = 1_000) {
         const maxEntries = Math.max(0, Math.floor(Number(limit) || 0));
-        return (
-            maxEntries
-                ? entries.length > maxEntries && entries.splice(0, entries.length - maxEntries)
-                : (entries.length = 0),
-            entries
-        );
+        if (!maxEntries) entries.length = 0;
+        else if (entries.length > maxEntries) entries.splice(0, entries.length - maxEntries);
+        return entries;
     }
     function formatLogEntry(entry) {
         const url = sanitizeLogUrl(entry.galleryUrl);
         return `[${entry.timestamp}] [${String(entry.level || "info").toUpperCase()}] ${String(entry.message || "")}${url ? ` ${url}` : ""}`;
+    }
+    function buildBadTagAuditExportText(audit) {
+        if (!audit)
+            return [
+                "[错误标签审计]",
+                "状态: 本页会话尚未自动记录错误标签页",
+            ].join("\r\n");
+        const lines = [
+            "[错误标签审计]",
+            `记录时间: ${audit.recordedAt}`,
+            `用户 UID: ${audit.uid || "未知"}`,
+            `来源: ${audit.repositoryUrl || "未知"}`,
+            `错误画廊数: ${audit.galleryCount}`,
+            `错误标签记录数: ${audit.badTagRecordCount}`,
+            `不同错误标签数: ${audit.uniqueBadTagCount}`,
+            "",
+            "[错误标签频次 TSV]",
+            "次数\t画廊数\t标签",
+            ...audit.tagCounts.map(
+                (count) => `${count.count}\t${count.galleryCount}\t${count.tag}`,
+            ),
+            "",
+            "[黑名单候选（一行一个）]",
+            ...audit.tagCounts.map((count) => count.tag),
+            "",
+            "[错误画廊明细]",
+        ];
+        audit.galleries.forEach((gallery, index) => {
+            lines.push(
+                "",
+                `--- 画廊 ${index + 1} ---`,
+                `GID: ${gallery.gid}`,
+                `链接: ${gallery.galleryUrl}`,
+                `标题: ${gallery.title}`,
+                `标题长度: ${gallery.titleLength}`,
+                `规范标题长度: ${gallery.normalizedTitleLength}`,
+                `全部标签数: ${gallery.tagCount}`,
+                `错误标签数: ${gallery.badTagCount}`,
+                "错误标签（标签\t记录时间）:",
+                ...gallery.badTags.map((record) => `${record.tag}\t${record.timestamp}`),
+                "全部标签:",
+                ...gallery.tags,
+            );
+        });
+        return lines.join("\r\n");
+    }
+    function buildCorrectionAuditExportText(entries) {
+        const records = entries.filter((entry) => entry.correction);
+        if (!records.length)
+            return ["[修正状态审计]", "状态: 本页会话没有修正状态动作或阻断"].join(
+                "\r\n",
+            );
+        const lines = ["[修正状态审计]", `记录数: ${records.length}`];
+        records.forEach((entry, index) => {
+            const audit = entry.correction;
+            lines.push(
+                "",
+                `--- 记录 ${index + 1} ---`,
+                `时间: ${entry.timestamp}`,
+                `目标: ${audit.targetUrl}`,
+                `标签: ${audit.tag}`,
+                `GN: ${audit.titleGn || "(空)"}`,
+                `GJ: ${audit.titleGj || "(空)"}`,
+                `状态: ${audit.state || "未知"}`,
+                `动作: ${audit.action || "未知"}`,
+                `原因: ${audit.reason || "未提供"}`,
+                `正向命中: ${audit.positiveMarkers.join(", ") || "(无)"}`,
+                `否定命中: ${audit.negativeMarkers.join(", ") || "(无)"}`,
+                `否定短语: ${audit.negatedMarkers.join(", ") || "(无)"}`,
+                "相关来源:",
+                ...(audit.sourceUrls.length ? audit.sourceUrls : ["(无)"]),
+            );
+        });
+        return lines.join("\r\n");
+    }
+    function buildRandomSkipAuditExportText(entries) {
+        const records = entries.filter((entry) => entry.randomSkip);
+        if (!records.length)
+            return ["[随机少迁移审计]", "状态: 本页会话没有随机省略标签"].join("\r\n");
+        const lines = ["[随机少迁移审计]", `记录数: ${records.length}`];
+        records.forEach((entry, index) => {
+            const audit = entry.randomSkip;
+            lines.push(
+                "",
+                `--- 记录 ${index + 1} ---`,
+                `时间: ${entry.timestamp}`,
+                `种子画廊: ${entry.galleryUrl || "未知"}`,
+                `配置范围: ${audit.rangeMin}-${audit.rangeMax}`,
+                `候选标签数: ${audit.eligibleCount}`,
+                `实际省略数: ${audit.actualCount}`,
+                "省略标签:",
+                ...audit.skippedTags,
+            );
+        });
+        return lines.join("\r\n");
     }
     function buildLogExportText(
         entries,
@@ -2920,11 +3838,26 @@ const SCRIPT_PARAMETERS = Object.freeze({
             version: version = SCRIPT_VERSION,
             site: site = "",
             exportedAt: exportedAt = new Date(),
+            badTagAudit: badTagAudit = null,
         } = {},
     ) {
         const date = exportedAt instanceof Date ? exportedAt : new Date(exportedAt),
-            origin = site || ("undefined" == typeof location ? "" : location.origin);
-        return `\ufeff${["E-Hentai 跨语言画廊 Tag 迁移日志", `版本: ${version}`, `导出时间: ${date.toISOString()}`, `站点: ${origin || "未知"}`, `日志条数: ${entries.length}`, "", ...entries.map(formatLogEntry)].join("\r\n")}\r\n`;
+            origin = site || (typeof location === "undefined" ? "" : location.origin);
+        return `\ufeff${[
+            "E-Hentai 跨语言画廊 Tag 迁移日志",
+            `版本: ${version}`,
+            `导出时间: ${date.toISOString()}`,
+            `站点: ${origin || "未知"}`,
+            `日志条数: ${entries.length}`,
+            "",
+            ...entries.map(formatLogEntry),
+            "",
+            buildCorrectionAuditExportText(entries),
+            "",
+            buildRandomSkipAuditExportText(entries),
+            "",
+            buildBadTagAuditExportText(badTagAudit),
+        ].join("\r\n")}\r\n`;
     }
     function buildLogExportFilename(date = new Date()) {
         const normalizedDate = date instanceof Date ? date : new Date(date),
@@ -2933,124 +3866,352 @@ const SCRIPT_PARAMETERS = Object.freeze({
     }
     function exportLog() {
         const entries = runtimeState.logEntries.slice(),
-            blob = new Blob([buildLogExportText(entries)], {
+            blob = new Blob([
+                buildLogExportText(entries, { badTagAudit: runtimeState.badTagAudit }),
+            ], {
                 type: "text/plain;charset=utf-8",
             }),
             objectUrl = URL.createObjectURL(blob),
             anchor = document.createElement("a");
-        (anchor.hidden = !0),
-            (anchor.href = objectUrl),
-            (anchor.download = buildLogExportFilename()),
-            document.body.appendChild(anchor),
-            anchor.click(),
-            anchor.remove(),
-            setTimeout(() => URL.revokeObjectURL(objectUrl), 0),
-            appendLog("ok", `已导出 ${entries.length} 条本页会话日志`);
+        anchor.hidden = true;
+        anchor.href = objectUrl;
+        anchor.download = buildLogExportFilename();
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+        appendLog("ok", `已导出 ${entries.length} 条本页会话日志`, "", true);
     }
-    function shouldDeferLogRender(visibilityState, minimized) {
-        return "visible" !== visibilityState || !0 === minimized;
+    function shouldDeferLogRender(visibilityState) {
+        return visibilityState !== "visible";
     }
     function createLogElement(entry) {
         const element = document.createElement("div");
-        if (
-            ((element.className = `ehtt-log-line ehtt-${entry.level}`),
-            element.append(document.createTextNode(`${entry.localTime} ${entry.message}`)),
-            entry.galleryUrl)
-        ) {
+        element.className = `ehtt-log-line ehtt-${entry.level}`;
+        element.append(document.createTextNode(`${entry.localTime} ${entry.message}`));
+        if (entry.galleryUrl) {
             const link = document.createElement("a");
-            (link.className = "ehtt-log-link"),
-                (link.href = entry.galleryUrl),
-                (link.target = "_blank"),
-                (link.rel = "noopener noreferrer"),
-                (link.textContent = entry.galleryUrl),
-                element.append(document.createTextNode(" "), link);
+            link.className = "ehtt-log-link";
+            link.href = entry.galleryUrl;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.textContent = entry.galleryUrl;
+            element.append(document.createTextNode(" "), link);
         }
         return element;
     }
     function canRenderLogs() {
         return (
             Boolean(runtimeState.ui?.logEntries) &&
-            !shouldDeferLogRender(
-                document.visibilityState,
-                runtimeState.ui.panel.classList.contains("ehtt-minimized"),
-            )
+            !shouldDeferLogRender(document.visibilityState)
         );
     }
     function renderLogEntries() {
         if (!runtimeState.ui?.logEntries) return;
-        if (!canRenderLogs()) return void (runtimeState.logDomDirty = !0);
+        if (!canRenderLogs()) {
+            runtimeState.logDomDirty = true;
+            return;
+        }
         const fragment = document.createDocumentFragment();
-        for (const entry of runtimeState.logEntries.slice(-100))
+        for (const entry of runtimeState.logEntries.slice(-VISIBLE_LOG_LIMIT))
             fragment.appendChild(createLogElement(entry));
-        runtimeState.ui.logEntries.replaceChildren(fragment),
-            (runtimeState.ui.logEntries.scrollTop = runtimeState.ui.logEntries.scrollHeight),
-            (runtimeState.logDomDirty = !1);
+        runtimeState.ui.logEntries.replaceChildren(fragment);
+        runtimeState.ui.logEntries.scrollTop = runtimeState.ui.logEntries.scrollHeight;
+        runtimeState.logDomDirty = false;
     }
-    function appendLog(level, message, galleryUrl = "") {
-        const entry = createLogEntry(level, message, galleryUrl);
-        if (
-            (runtimeState.logEntries.push(entry),
-            runtimeState.logEntries.length > 1e3 && trimLogEntries(runtimeState.logEntries),
-            ("warn" !== level && "error" !== level) ||
-                console[level](
-                    `${LOG_PREFIX} ${entry.message}` +
-                        (entry.galleryUrl ? ` ${entry.galleryUrl}` : ""),
-                ),
-            runtimeState.ui?.logEntries)
-        )
-            if (canRenderLogs()) {
-                for (
-                    runtimeState.ui.logEntries.appendChild(createLogElement(entry));
-                    runtimeState.ui.logEntries.childElementCount > 100;
-
-                )
-                    runtimeState.ui.logEntries.firstElementChild?.remove();
-                runtimeState.ui.logEntries.scrollTop = runtimeState.ui.logEntries.scrollHeight;
-            } else runtimeState.logDomDirty = !0;
+    function appendLog(
+        level,
+        message,
+        galleryUrl = "",
+        isImportant = false,
+        correction = null,
+        randomSkip = null,
+    ) {
+        if (!isImportant && !["warn", "error"].includes(level)) return;
+        const entry = createLogEntry(
+            level,
+            message,
+            galleryUrl,
+            new Date(),
+            correction,
+            randomSkip,
+        );
+        runtimeState.logEntries.push(entry);
+        if (runtimeState.logEntries.length > 1_000) trimLogEntries(runtimeState.logEntries);
+        if (["warn", "error"].includes(level)) {
+            console[level](
+                `${LOG_PREFIX} ${entry.message}` +
+                    (entry.galleryUrl ? ` ${entry.galleryUrl}` : ""),
+            );
+        }
+        if (!runtimeState.ui?.logEntries) return;
+        if (!canRenderLogs()) {
+            runtimeState.logDomDirty = true;
+            return;
+        }
+        runtimeState.ui.logEntries.appendChild(createLogElement(entry));
+        while (runtimeState.ui.logEntries.childElementCount > VISIBLE_LOG_LIMIT) {
+            runtimeState.ui.logEntries.firstElementChild?.remove();
+        }
+        runtimeState.ui.logEntries.scrollTop = runtimeState.ui.logEntries.scrollHeight;
     }
+    // 7. 定时调度、生命周期与面板
     function clearScheduleTimer() {
-        clearTimeout(runtimeState.scheduleTimer), (runtimeState.scheduleTimer = null);
+        clearTimeout(runtimeState.scheduleTimer);
+        runtimeState.scheduleTimer = null;
     }
     function clearLifecycleTimer() {
-        clearTimeout(runtimeState.lifecycleTimer), (runtimeState.lifecycleTimer = null);
+        clearTimeout(runtimeState.lifecycleTimer);
+        runtimeState.lifecycleTimer = null;
     }
-    function persistNextRunAt(nextRunAt) {
-        if ("home" !== runtimeState.pageMode) return;
+    function persistScheduleState(nextRunAt, scheduleWindow = runtimeState.scheduleWindow) {
+        if (runtimeState.pageMode !== "home") return;
         const homeState = loadHomeState();
-        (homeState.nextRunAt = Math.max(0, Number(nextRunAt) || 0)), saveHomeState(homeState);
+        homeState.nextRunAt = Math.max(0, Number(nextRunAt) || 0);
+        homeState.scheduleWindow = sanitizeScheduleWindow(scheduleWindow);
+        saveHomeState(homeState);
     }
     function getScheduleState(nextRunAt, now = Date.now()) {
         const normalizedNextRunAt = Math.max(0, Number(nextRunAt) || 0);
         return normalizedNextRunAt ? (normalizedNextRunAt <= now ? "due" : "waiting") : "none";
     }
-    function getPersistedNextRunAt() {
-        if ("home" === runtimeState.pageMode) {
-            const nextRunAt = loadHomeState().nextRunAt;
-            if (nextRunAt) return nextRunAt;
-        }
-        return runtimeState.nextRunAt;
+    function getScheduleSignature(config) {
+        return `${config.scheduleStartTime}|${config.scheduleEndTime}|${config.scheduleTimeJitterMinutes}`;
     }
-    function scheduleNextRun(config, reuseExisting = !1, persist = !0) {
-        if ((clearScheduleTimer(), !config.scheduleEnabled || runtimeState.schedulerPaused))
-            return (runtimeState.nextRunAt = 0), void (persist && persistNextRunAt(0));
-        let nextRunAt = reuseExisting ? getPersistedNextRunAt() : 0;
-        if (nextRunAt <= Date.now()) {
-            const intervalMs = 60 * config.scheduleMinutes * 1e3,
-                jitter = 1 + (2 * Math.random() - 1) * RUNTIME_LIMITS.schedulerJitterRatio;
-            nextRunAt = Date.now() + Math.max(6e4, Math.round(intervalMs * jitter));
+    function getLocalDayStart(timestamp, offsetDays = 0) {
+        const dayStart = new Date(Number(timestamp));
+        dayStart.setHours(0, 0, 0, 0);
+        if (offsetDays) dayStart.setDate(dayStart.getDate() + offsetDays);
+        return dayStart.getTime();
+    }
+    function getScheduleDayKey(dayStart) {
+        const date = new Date(dayStart);
+        return [
+            date.getFullYear(),
+            String(date.getMonth() + 1).padStart(2, "0"),
+            String(date.getDate()).padStart(2, "0"),
+        ].join("-");
+    }
+    function getScheduleWindowDayStart(scheduleWindow) {
+        const match = String(scheduleWindow?.key || "").match(
+            /^(\d{4})-(\d{2})-(\d{2})\|/u,
+        );
+        if (!match) return null;
+        const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+        return getScheduleDayKey(date.getTime()) === match[0].slice(0, 10)
+            ? date.getTime()
+            : null;
+    }
+    function getEffectiveScheduleJitter(config) {
+        const startMinutes = parseScheduleMinutes(config.scheduleStartTime),
+            endMinutes = parseScheduleMinutes(config.scheduleEndTime),
+            durationMinutes =
+                startMinutes === endMinutes
+                    ? 1440
+                    : endMinutes > startMinutes
+                      ? endMinutes - startMinutes
+                      : 1440 - startMinutes + endMinutes;
+        return startMinutes === endMinutes
+            ? 0
+            : Math.min(
+                  config.scheduleTimeJitterMinutes,
+                  Math.max(0, Math.floor(durationMinutes / 2) - 1),
+              );
+    }
+    function createDailyScheduleWindow(dayStart, config, random = Math.random) {
+        const startMinutes = parseScheduleMinutes(config.scheduleStartTime),
+            endMinutes = parseScheduleMinutes(config.scheduleEndTime),
+            jitterMinutes = getEffectiveScheduleJitter(config),
+            randomOffset = () => {
+                if (!jitterMinutes) return 0;
+                const randomIndex = Math.min(
+                    2 * jitterMinutes,
+                    Math.floor(Math.max(0, Number(random()) || 0) * (2 * jitterMinutes + 1)),
+                );
+                return randomIndex - jitterMinutes;
+            },
+            startTime = new Date(dayStart),
+            endTime = new Date(dayStart);
+        startTime.setMinutes(startMinutes + randomOffset());
+        endTime.setDate(endTime.getDate() + (endMinutes <= startMinutes ? 1 : 0));
+        endTime.setMinutes(endMinutes + randomOffset());
+        return {
+            key: `${getScheduleDayKey(dayStart)}|${getScheduleSignature(config)}`,
+            startAt: startTime.getTime(),
+            endAt: Math.max(startTime.getTime() + 60_000, endTime.getTime()),
+        };
+    }
+    function resolveDailyScheduleWindow(
+        timestamp,
+        config = DEFAULT_CONFIG,
+        storedWindow = null,
+        random = Math.random,
+    ) {
+        const now = Number(timestamp),
+            signature = `|${getScheduleSignature(config)}`,
+            sanitizedStoredWindow = sanitizeScheduleWindow(storedWindow),
+            isStoredCompatible =
+                sanitizedStoredWindow?.key.endsWith(signature) &&
+                getScheduleWindowDayStart(sanitizedStoredWindow) !== null;
+        if (isStoredCompatible && sanitizedStoredWindow.endAt > now)
+            return sanitizedStoredWindow;
+
+        const todayStart = getLocalDayStart(now),
+            startMinutes = parseScheduleMinutes(config.scheduleStartTime),
+            endMinutes = parseScheduleMinutes(config.scheduleEndTime);
+        let scheduleWindow;
+        if (startMinutes >= endMinutes) {
+            const previousWindow = createDailyScheduleWindow(
+                getLocalDayStart(now, -1),
+                config,
+                random,
+            );
+            if (
+                startMinutes === endMinutes ||
+                (now >= previousWindow.startAt && now < previousWindow.endAt)
+            )
+                scheduleWindow = previousWindow;
         }
-        runtimeState.nextRunAt = nextRunAt;
-        const delayMs = Math.max(1e3, nextRunAt - Date.now());
-        persist && persistNextRunAt(nextRunAt),
-            (runtimeState.scheduleTimer = setTimeout(() => {
-                (runtimeState.scheduleTimer = null), runWorker();
-            }, delayMs)),
-            appendLog("info", `下次周期运行约在 ${new Date(nextRunAt).toLocaleTimeString()}`),
-            updateControlState();
+        if (!scheduleWindow) {
+            scheduleWindow = createDailyScheduleWindow(todayStart, config, random);
+        }
+        if (now >= scheduleWindow.endAt) {
+            scheduleWindow = createDailyScheduleWindow(
+                getLocalDayStart(getScheduleWindowDayStart(scheduleWindow), 1),
+                config,
+                random,
+            );
+        }
+
+        if (isStoredCompatible && sanitizedStoredWindow.endAt <= now) {
+            const storedDayStart = getScheduleWindowDayStart(sanitizedStoredWindow),
+                selectedDayStart = getScheduleWindowDayStart(scheduleWindow);
+            selectedDayStart <= storedDayStart &&
+                (scheduleWindow = createDailyScheduleWindow(
+                    getLocalDayStart(storedDayStart, 1),
+                    config,
+                    random,
+                ));
+        }
+        return scheduleWindow;
+    }
+    function isWithinDailyScheduleWindow(timestamp, config, scheduleWindow) {
+        return (
+            config.scheduleStartTime === config.scheduleEndTime ||
+            (Number(timestamp) >= scheduleWindow?.startAt &&
+                Number(timestamp) < scheduleWindow?.endAt)
+        );
+    }
+    function alignScheduledRunAt(
+        timestamp,
+        config,
+        storedWindow = null,
+        random = Math.random,
+    ) {
+        let scheduleWindow = resolveDailyScheduleWindow(
+            timestamp,
+            config,
+            storedWindow,
+            random,
+        );
+        if (config.scheduleStartTime === config.scheduleEndTime)
+            return {
+                runAt: Number(timestamp),
+                window: scheduleWindow,
+            };
+        while (timestamp >= scheduleWindow.endAt) {
+            const dayStart = getScheduleWindowDayStart(scheduleWindow);
+            scheduleWindow = createDailyScheduleWindow(
+                getLocalDayStart(dayStart, 1),
+                config,
+                random,
+            );
+        }
+        return {
+            runAt: Math.max(Number(timestamp), scheduleWindow.startAt),
+            window: scheduleWindow,
+        };
+    }
+    function getPersistedScheduleState() {
+        return runtimeState.pageMode === "home"
+            ? loadHomeState()
+            : {
+                  nextRunAt: runtimeState.nextRunAt,
+                  scheduleWindow: runtimeState.scheduleWindow,
+              };
+    }
+    function logScheduleWindow(config, scheduleWindow) {
+        if (runtimeState.loggedScheduleWindowKey === scheduleWindow.key) return;
+        runtimeState.loggedScheduleWindowKey = scheduleWindow.key;
+        setStatus(
+            config.scheduleStartTime === config.scheduleEndTime
+                ? "本次自动运行窗口：全天"
+                : `本次自动运行窗口：${new Date(scheduleWindow.startAt).toLocaleString()}–${new Date(scheduleWindow.endAt).toLocaleString()}`,
+        );
+    }
+    function scheduleNextRun(config, reuseExisting = false) {
+        clearScheduleTimer();
+        if (!config.scheduleEnabled || runtimeState.schedulerPaused || runtimeState.globallyPaused) {
+            runtimeState.nextRunAt = 0;
+            persistScheduleState(0);
+            return;
+        }
+        const now = Date.now(),
+            persistedState = getPersistedScheduleState();
+        let nextRunAt = reuseExisting ? persistedState.nextRunAt : 0;
+        if (nextRunAt <= now) {
+            const intervalMs = 60 * config.scheduleMinutes * 1_000,
+                jitter = 1 + (2 * Math.random() - 1) * RUNTIME_LIMITS.schedulerJitterRatio;
+            nextRunAt = now + Math.max(60_000, Math.round(intervalMs * jitter));
+        }
+        const alignedSchedule = alignScheduledRunAt(
+            nextRunAt,
+            config,
+            persistedState.scheduleWindow,
+        );
+        runtimeState.nextRunAt = alignedSchedule.runAt;
+        runtimeState.scheduleWindow = alignedSchedule.window;
+        logScheduleWindow(config, alignedSchedule.window);
+        const delayMs = Math.max(1_000, runtimeState.nextRunAt - now);
+        persistScheduleState(runtimeState.nextRunAt, runtimeState.scheduleWindow);
+        runtimeState.scheduleTimer = setTimeout(() => {
+            runtimeState.scheduleTimer = null;
+            runWorker();
+        }, delayMs);
+        setStatus(`下次周期运行约在 ${new Date(runtimeState.nextRunAt).toLocaleString()}`);
+        updateControlState();
+    }
+    function getCurrentScheduleWindow(config, now = Date.now()) {
+        const persistedState = getPersistedScheduleState(),
+            scheduleWindow = resolveDailyScheduleWindow(
+                now,
+                config,
+                persistedState.scheduleWindow,
+            );
+        runtimeState.scheduleWindow = scheduleWindow;
+        logScheduleWindow(config, scheduleWindow);
+        persistScheduleState(persistedState.nextRunAt, scheduleWindow);
+        return scheduleWindow;
+    }
+    function shouldStopAutomaticWork(config, now = Date.now()) {
+        const shouldStop =
+            config.scheduleEnabled &&
+            !runtimeState.manualRun &&
+            config.scheduleStartTime !== config.scheduleEndTime &&
+            now >= runtimeState.scheduleWindow?.endAt;
+        if (shouldStop) runtimeState.scheduleBoundaryReached = true;
+        return shouldStop;
     }
     function reconcileLifecycleState() {
         if (runtimeState.lifecycleSuspended) return;
-        if (runtimeState.running) return void renewWorkerLock();
+        if (runtimeState.globallyPaused) {
+            setStatus("已全局停止；点击重新开始恢复");
+            return;
+        }
+        if (runtimeState.running) {
+            renewWorkerLock();
+            return;
+        }
         if (runtimeState.autoTimer || runtimeState.schedulerPaused) return;
         const config = resolveConfig();
         if (runtimeState.waitingForRunOwner) {
@@ -3063,490 +4224,596 @@ const SCRIPT_PARAMETERS = Object.freeze({
                 console.warn(`${LOG_PREFIX} 无法读取跨标签页运行租约`, error);
             }
             const interruptedState = getInterruptedRunState(marker, owner, lock);
-            if ("active" === interruptedState) return;
-            if ("interrupted" === interruptedState)
-                return (
-                    (runtimeState.waitingForRunOwner = ""),
-                    appendLog("warn", "检测到上次运行中断，正在恢复"),
-                    void runWorker()
-                );
-            if (((runtimeState.waitingForRunOwner = ""), "home" !== runtimeState.pageMode))
-                return void scheduleNextRun(config);
+            if (interruptedState === "active") return;
+            if (interruptedState === "interrupted") {
+                runtimeState.waitingForRunOwner = "";
+                appendLog("warn", "检测到上次运行中断，正在恢复");
+                runWorker();
+                return;
+            }
+            runtimeState.waitingForRunOwner = "";
+            if (runtimeState.pageMode !== "home") {
+                scheduleNextRun(config);
+                return;
+            }
         }
         if (!config.scheduleEnabled) return;
-        const scheduleState = getScheduleState(getPersistedNextRunAt());
-        "due" === scheduleState
-            ? (clearScheduleTimer(), runWorker())
-            : "waiting" !== scheduleState ||
-              runtimeState.scheduleTimer ||
-              scheduleNextRun(config, !0, !1);
+        const scheduleState = getScheduleState(getPersistedScheduleState().nextRunAt);
+        if (scheduleState === "due") {
+            clearScheduleTimer();
+            runWorker();
+        } else if (scheduleState !== "waiting" || !runtimeState.scheduleTimer) {
+            scheduleNextRun(config, true);
+        }
     }
     function scheduleLifecycleHeartbeat() {
-        clearLifecycleTimer(),
-            runtimeState.lifecycleSuspended ||
-                (runtimeState.lifecycleTimer = setTimeout(() => {
-                    (runtimeState.lifecycleTimer = null),
-                        reconcileLifecycleState(),
-                        scheduleLifecycleHeartbeat();
-                }, RUNTIME_LIMITS.lifecycleHeartbeatMs));
+        clearLifecycleTimer();
+        if (runtimeState.lifecycleSuspended) return;
+        runtimeState.lifecycleTimer = setTimeout(() => {
+            runtimeState.lifecycleTimer = null;
+            reconcileLifecycleState();
+            scheduleLifecycleHeartbeat();
+        }, RUNTIME_LIMITS.lifecycleHeartbeatMs);
     }
-    function stopWorker(message, silent = !1, pauseScheduler = !1) {
-        clearTimeout(runtimeState.autoTimer),
-            (runtimeState.autoTimer = null),
-            pauseScheduler &&
-                ((runtimeState.schedulerPaused = !0),
-                clearScheduleTimer(),
-                (runtimeState.nextRunAt = 0),
-                persistNextRunAt(0),
-                clearRunMarker(runtimeState.workerLockOwner),
-                (runtimeState.waitingForRunOwner = "")),
-            runtimeState.runId++,
-            runtimeState.controller?.abort(),
-            (runtimeState.controller = null),
-            (runtimeState.running = !1),
-            silent || (setStatus(message), appendLog("warn", message)),
+    function applyGlobalPauseState(value, isRemoteChange = false) {
+        const isPaused = sanitizeGlobalPauseState(value).paused;
+        if (runtimeState.globallyPaused === isPaused) {
             updateControlState();
+            return;
+        }
+        runtimeState.globallyPaused = isPaused;
+        if (isPaused) {
+            stopWorker(
+                isRemoteChange ? "其他页面已全局停止脚本" : "用户已全局停止脚本",
+                false,
+                true,
+            );
+            return;
+        }
+        runtimeState.schedulerPaused = false;
+        setStatus(isRemoteChange ? "其他页面已恢复全局运行" : "正在恢复全局运行");
+        appendLog(
+            "info",
+            isRemoteChange ? "其他页面已恢复全局运行" : "恢复全局运行",
+            "",
+            true,
+        );
+        if (isRemoteChange) scheduleNextRun(resolveConfig());
+        updateControlState();
+    }
+    function setupGlobalPauseSync() {
+        runtimeState.globallyPaused = readGlobalPauseState().paused;
+        try {
+            GM_addValueChangeListener(
+                GLOBAL_PAUSE_STORAGE_KEY,
+                (name, oldValue, newValue, isRemoteChange) => {
+                    if (isRemoteChange) applyGlobalPauseState(newValue, true);
+                },
+            );
+        } catch (error) {
+            console.warn(`${LOG_PREFIX} 无法监听全局停止状态`, error);
+        }
+    }
+    function pauseAllPages() {
+        try {
+            writeGlobalPauseState(true);
+            applyGlobalPauseState(true);
+        } catch (error) {
+            setStatus(`停止失败：${error.message}`);
+            appendLog("error", error.message);
+        }
+    }
+    function resumeAllPages(options = { manual: true }) {
+        try {
+            writeGlobalPauseState(false);
+            applyGlobalPauseState(false);
+            runWorker({ ...options, globalResume: true });
+        } catch (error) {
+            setStatus(`恢复失败：${error.message}`);
+            appendLog("error", error.message);
+        }
+    }
+    function stopWorker(message, silent = false, pauseScheduler = false) {
+        clearTimeout(runtimeState.autoTimer);
+        runtimeState.autoTimer = null;
+        if (pauseScheduler) {
+            runtimeState.schedulerPaused = true;
+            clearScheduleTimer();
+            runtimeState.nextRunAt = 0;
+            persistScheduleState(0);
+            clearRunMarker(runtimeState.workerLockOwner);
+            runtimeState.waitingForRunOwner = "";
+        }
+        runtimeState.runId++;
+        runtimeState.controller?.abort();
+        runtimeState.controller = null;
+        runtimeState.running = false;
+        runtimeState.manualRun = false;
+        runtimeState.scheduleBoundaryReached = false;
+        if (!silent) {
+            setStatus(message);
+            appendLog("warn", message);
+        }
+        updateControlState();
+    }
+    function acquireWorkerLock(owner) {
+        const now = Date.now();
+        try {
+            if (isForeignWorkerLock(loadWorkerLock(), owner, now)) return false;
+            saveWorkerLock(owner, now);
+            const acquired = loadWorkerLock()?.owner === owner;
+            runtimeState.workerLockOwner = acquired ? owner : "";
+            return acquired;
+        } catch (error) {
+            throw new Error(`无法建立跨标签页运行租约：${error.message}`);
+        }
+    }
+    function saveRunMarker(owner) {
+        try {
+            localStorage.setItem(
+                RUN_MARKER_STORAGE_KEY,
+                JSON.stringify({ owner: owner, startedAt: Date.now() }),
+            );
+        } catch (error) {
+            console.warn(`${LOG_PREFIX} 无法保存运行标记`, error);
+        }
+    }
+    function resetWorkerAfterLockFailure(message) {
+        runtimeState.running = false;
+        runtimeState.controller = null;
+        runtimeState.manualRun = false;
+        setStatus(message);
+        updateControlState();
     }
     async function runWorker(options = {}) {
         if (runtimeState.running) return;
-        clearScheduleTimer(), stopWorker("重新开始", !0, !1), (runtimeState.schedulerPaused = !1);
-        const runId = runtimeState.runId,
-            config = resolveConfig();
-        (runtimeState.controller = new AbortController()), (runtimeState.running = !0);
-        const owner = `${INSTANCE_ID}:${runId}`;
-        let acquiredLock = !1;
-        try {
-            acquiredLock = (function (owner) {
-                const now = Date.now();
-                try {
-                    if (isForeignWorkerLock(loadWorkerLock(), owner, now)) return !1;
-                    saveWorkerLock(owner, now);
-                    const acquired = loadWorkerLock()?.owner === owner;
-                    return (runtimeState.workerLockOwner = acquired ? owner : ""), acquired;
-                } catch (error) {
-                    throw new Error(`无法建立跨标签页运行租约：${error.message}`);
-                }
-            })(owner);
-        } catch (error) {
-            return (
-                (runtimeState.running = !1),
-                (runtimeState.controller = null),
-                setStatus(`失败：${error.message}`),
-                appendLog("error", error.message),
-                void updateControlState()
-            );
+        if (runtimeState.globallyPaused && !options.globalResume) {
+            setStatus("已全局停止；点击重新开始恢复");
+            updateControlState();
+            return;
         }
-        if (!acquiredLock)
-            return (
-                (runtimeState.running = !1),
-                (runtimeState.controller = null),
-                setStatus("其他标签页正在运行，本轮跳过"),
-                appendLog("skip", "其他标签页持有跨标签页运行租约"),
-                (runtimeState.waitingForRunOwner = loadRunMarker()?.owner || ""),
-                runtimeState.waitingForRunOwner || scheduleNextRun(config),
-                void updateControlState()
-            );
-        !(function (owner) {
-            try {
-                localStorage.setItem(
-                    RUN_MARKER_STORAGE_KEY,
-                    JSON.stringify({
-                        owner: owner,
-                        startedAt: Date.now(),
-                    }),
-                );
-            } catch (error) {
-                console.warn(`${LOG_PREFIX} 无法保存运行标记`, error);
+        const config = resolveConfig(),
+            isManualRun = options.manual === true;
+        if (config.scheduleEnabled && !isManualRun) {
+            const scheduleWindow = getCurrentScheduleWindow(config);
+            if (!isWithinDailyScheduleWindow(Date.now(), config, scheduleWindow)) {
+                setStatus("等待本次自动运行窗口");
+                appendLog("skip", "当前不在本次自动运行窗口");
+                scheduleNextRun(config);
+                return;
             }
-        })(owner),
-            (runtimeState.waitingForRunOwner = ""),
-            (runtimeState.nextRunAt = 0),
-            persistNextRunAt(0),
-            (runtimeState.requestBudget =
-                "home" === runtimeState.pageMode
-                    ? createRequestBudget(config.homeRequestLimit)
-                    : null),
-            updateControlState(),
-            appendLog("info", `开始运行 v${SCRIPT_VERSION}`);
+        }
+        clearScheduleTimer();
+        stopWorker("重新开始", true, false);
+        runtimeState.schedulerPaused = false;
+        const runId = runtimeState.runId;
+        runtimeState.controller = new AbortController();
+        runtimeState.running = true;
+        runtimeState.manualRun = isManualRun;
+        runtimeState.scheduleBoundaryReached = false;
+        const owner = `${INSTANCE_ID}:${runId}`;
+        let acquiredLock = false;
         try {
-            await (async function (runId, config, signal, options = {}) {
-                if (options.reviewBadTags)
-                    return (
-                        setStatus("重新检查当前错误标签记录"),
-                        await processBadTags(
-                            {
-                                ...config,
-                                badTagEnabled: !0,
-                            },
-                            signal,
-                            {
-                                reviewKnown: !0,
-                            },
-                        ),
-                        void setStatus("错误标签重新检查完成")
-                    );
-                for (const phase of NORMAL_RUN_PHASES)
-                    if ("tag-transfer" === phase)
-                        setRequestBudgetReserve(
-                            runtimeState.requestBudget,
-                            config.badTagEnabled ? 6 : 0,
-                        ),
-                            "home" === runtimeState.pageMode
-                                ? await processHomepage(runId, config, signal)
-                                : await processCurrentGallery(runId, config, signal),
-                            setRequestBudgetReserve(runtimeState.requestBudget, 0);
-                    else if (config.badTagEnabled) {
-                        setStatus("检查待处理错误标签记录");
-                        try {
-                            await processBadTags(config, signal);
-                        } catch (error) {
-                            if ("AbortError" === error.name) throw error;
-                            "RequestBudgetError" === error.name
-                                ? appendLog("info", "本轮剩余请求不足，错误标签将在下一周期继续")
-                                : appendLog("warn", `错误标签检查失败：${error.message}`);
+            acquiredLock = acquireWorkerLock(owner);
+        } catch (error) {
+            resetWorkerAfterLockFailure(`失败：${error.message}`);
+            appendLog("error", error.message);
+            return;
+        }
+        if (!acquiredLock) {
+            resetWorkerAfterLockFailure("其他标签页正在运行，本轮跳过");
+            appendLog("skip", "其他标签页持有跨标签页运行租约");
+            runtimeState.waitingForRunOwner = loadRunMarker()?.owner || "";
+            if (!runtimeState.waitingForRunOwner) scheduleNextRun(config);
+            return;
+        }
+        saveRunMarker(owner);
+        runtimeState.waitingForRunOwner = "";
+        runtimeState.nextRunAt = 0;
+        persistScheduleState(0);
+        runtimeState.requestBudget =
+            runtimeState.pageMode === "home" ? createRequestBudget(config.homeRequestLimit) : null;
+        updateControlState();
+        appendLog("info", `开始运行 v${SCRIPT_VERSION}`, "", true);
+        try {
+            const signal = runtimeState.controller.signal;
+            if (options.reviewBadTags) {
+                setStatus("重新检查当前错误标签记录");
+                await processBadTags(
+                    { ...config, badTagEnabled: true },
+                    signal,
+                    { reviewKnown: true },
+                );
+                setStatus("错误标签重新检查完成");
+            } else {
+                setRequestBudgetReserve(
+                    runtimeState.requestBudget,
+                    config.badTagEnabled ? 6 : 0,
+                );
+                if (!shouldStopAutomaticWork(config)) {
+                    if (runtimeState.pageMode === "home") {
+                        await processHomepage(runId, config, signal);
+                    } else {
+                        await processCurrentGallery(runId, config, signal);
+                    }
+                }
+                setRequestBudgetReserve(runtimeState.requestBudget, 0);
+
+                if (config.badTagEnabled && !shouldStopAutomaticWork(config)) {
+                    setStatus("检查待处理错误标签记录");
+                    try {
+                        await processBadTags(config, signal);
+                    } catch (error) {
+                        if (error.name === "AbortError") throw error;
+                        if (error.name === "RequestBudgetError") {
+                            setStatus("本轮剩余请求不足，错误标签将在下一周期继续");
+                        } else {
+                            appendLog("warn", `错误标签检查失败：${error.message}`);
                         }
                     }
-            })(runId, config, runtimeState.controller.signal, options);
+                }
+            }
         } catch (error) {
-            "AbortError" === error.name
-                ? runId === runtimeState.runId && setStatus("已停止")
-                : (appendLog("error", `运行失败：${error.message}`),
-                  setStatus(`失败：${error.message}`));
+            if (error.name === "AbortError") {
+                if (runId === runtimeState.runId) setStatus("已停止");
+            } else {
+                appendLog("error", `运行失败：${error.message}`);
+                setStatus(`失败：${error.message}`);
+            }
         } finally {
             const budget = runtimeState.requestBudget;
-            (runtimeState.requestBudget = null),
-                runId === runtimeState.runId &&
-                    ((runtimeState.running = !1),
-                    (runtimeState.controller = null),
-                    budget && appendLog("info", `本轮请求 ${budget.used}/${budget.limit}`),
-                    updateControlState(),
-                    scheduleNextRun(resolveConfig())),
-                clearRunMarker(owner),
-                releaseWorkerLock(owner);
+            runtimeState.requestBudget = null;
+            if (runId === runtimeState.runId) {
+                runtimeState.running = false;
+                runtimeState.controller = null;
+                if (runtimeState.scheduleBoundaryReached) {
+                    appendLog(
+                        "info",
+                        "已到自动运行结束时间，当前工作已安全完成",
+                        "",
+                        true,
+                    );
+                }
+                runtimeState.manualRun = false;
+                runtimeState.scheduleBoundaryReached = false;
+                if (budget) {
+                    appendLog(
+                        "info",
+                        `本轮请求 ${budget.used}/${budget.limit}`,
+                        "",
+                        true,
+                    );
+                }
+                updateControlState();
+                scheduleNextRun(resolveConfig());
+            }
+            clearRunMarker(owner);
+            releaseWorkerLock(owner);
         }
     }
     function updateControlState() {
-        runtimeState.ui &&
-            ((runtimeState.ui.stop.disabled =
-                !runtimeState.running && !runtimeState.autoTimer && !runtimeState.scheduleTimer),
-            (runtimeState.ui.restart.disabled = runtimeState.running),
-            runtimeState.ui.reviewBadTags &&
-                (runtimeState.ui.reviewBadTags.disabled = runtimeState.running));
-    }
-    function savePanelLayout() {
-        if (!runtimeState.ui?.panel) return;
-        const rect = runtimeState.ui.panel.getBoundingClientRect();
-        try {
-            localStorage.setItem(
-                UI_STATE_STORAGE_KEY,
-                JSON.stringify({
-                    left: Math.round(rect.left),
-                    top: Math.round(rect.top),
-                    minimized: runtimeState.ui.panel.classList.contains("ehtt-minimized"),
-                }),
-            );
-        } catch (error) {
-            console.warn(`${LOG_PREFIX} 无法保存面板布局`, error);
+        if (!runtimeState.ui) return;
+        runtimeState.ui.stop.disabled =
+            runtimeState.globallyPaused ||
+            (!runtimeState.running && !runtimeState.autoTimer && !runtimeState.scheduleTimer);
+        runtimeState.ui.restart.disabled = runtimeState.running;
+        if (runtimeState.ui.reviewBadTags) {
+            runtimeState.ui.reviewBadTags.disabled =
+                runtimeState.running || runtimeState.globallyPaused;
         }
     }
-    function constrainPanelToViewport(panel) {
-        const rect = panel.getBoundingClientRect(),
-            left = Math.max(0, Math.min(rect.left, Math.max(0, window.innerWidth - rect.width))),
-            top = Math.max(0, Math.min(rect.top, Math.max(0, window.innerHeight - rect.height)));
-        (panel.style.left = `${Math.round(left)}px`),
-            (panel.style.top = `${Math.round(top)}px`),
-            (panel.style.right = "auto");
-    }
     function handleLifecycleSuspend() {
-        runtimeState.lifecycleSuspended ||
-            ((runtimeState.lifecycleSuspended = !0),
-            (runtimeState.resumeRunAfterLifecycle =
-                runtimeState.running || Boolean(runtimeState.autoTimer)),
-            clearTimeout(runtimeState.autoTimer),
-            (runtimeState.autoTimer = null),
-            clearScheduleTimer(),
-            clearLifecycleTimer(),
-            runtimeState.runId++,
-            runtimeState.controller?.abort(),
-            (runtimeState.controller = null),
-            (runtimeState.running = !1),
-            (runtimeState.requestBudget = null),
-            releaseWorkerLock(),
-            updateControlState());
+        if (runtimeState.lifecycleSuspended) return;
+        runtimeState.lifecycleSuspended = true;
+        runtimeState.resumeRunAfterLifecycle =
+            runtimeState.running || Boolean(runtimeState.autoTimer);
+        clearTimeout(runtimeState.autoTimer);
+        runtimeState.autoTimer = null;
+        clearScheduleTimer();
+        clearLifecycleTimer();
+        runtimeState.runId++;
+        runtimeState.controller?.abort();
+        runtimeState.controller = null;
+        runtimeState.running = false;
+        runtimeState.requestBudget = null;
+        releaseWorkerLock();
+        updateControlState();
     }
     function shouldHandleLifecycleResume(eventType, visibilityState) {
-        return "visibilitychange" !== eventType || "visible" === visibilityState;
+        return eventType !== "visibilitychange" || visibilityState === "visible";
     }
     function handleLifecycleResume(event) {
         if (!shouldHandleLifecycleResume(event?.type, document.visibilityState)) return;
-        runtimeState.logDomDirty && renderLogEntries();
+        if (runtimeState.logDomDirty) renderLogEntries();
         const shouldResumeRun =
             runtimeState.lifecycleSuspended && runtimeState.resumeRunAfterLifecycle;
-        (runtimeState.lifecycleSuspended = !1),
-            (runtimeState.resumeRunAfterLifecycle = !1),
-            scheduleLifecycleHeartbeat(),
-            runtimeState.running
-                ? renewWorkerLock()
-                : !runtimeState.autoTimer && shouldResumeRun
-                  ? runWorker()
-                  : reconcileLifecycleState();
+        runtimeState.lifecycleSuspended = false;
+        runtimeState.resumeRunAfterLifecycle = false;
+        scheduleLifecycleHeartbeat();
+        if (runtimeState.running) renewWorkerLock();
+        else if (!runtimeState.autoTimer && shouldResumeRun) runWorker();
+        else reconcileLifecycleState();
+    }
+    function detectPageMode() {
+        const searchParams = new URLSearchParams(location.search);
+        const isFilteredHomePage = ["f_search", "next", "prev", "range"].some(
+            (parameterName) => searchParams.has(parameterName),
+        );
+        if (location.pathname === "/" && document.querySelector(".itg") && !isFilteredHomePage) {
+            return "home";
+        }
+        if (document.querySelector("#gn") && document.querySelector("#taglist")) {
+            return "gallery";
+        }
+        return "";
     }
     function initialize() {
         if (document.querySelector("#ehtt-panel")) return;
-        if (
-            ((runtimeState.pageMode = (function () {
-                const searchParams = new URLSearchParams(location.search);
-                return "/" === location.pathname &&
-                    document.querySelector(".itg") &&
-                    !["f_search", "next", "prev", "range"].some((parameterName) =>
-                        searchParams.has(parameterName),
-                    )
-                    ? "home"
-                    : document.querySelector("#gn") && document.querySelector("#taglist")
-                      ? "gallery"
-                      : "";
-            })()),
-            !runtimeState.pageMode)
-        )
-            return;
-        !(function () {
-            document.getElementById(STYLE_ELEMENT_ID)?.remove();
-            const styleElement = document.createElement("style");
-            (styleElement.id = STYLE_ELEMENT_ID),
-                (styleElement.textContent =
-                    '\n#ehtt-panel {\n    position: fixed;\n    top: 18px;\n    right: 18px;\n    z-index: 2147483646;\n    width: 352px;\n    max-height: calc(100vh - 36px);\n    overflow: hidden;\n    box-sizing: border-box;\n    border: 1px solid #8b7b70;\n    border-radius: 6px;\n    background: #f2f0e4;\n    color: #4f171b;\n    box-shadow: 0 5px 18px rgba(0, 0, 0, .22);\n    font: 12px/1.45 Arial, "Microsoft YaHei", sans-serif;\n    text-align: left;\n}\n#ehtt-panel * { box-sizing: border-box; }\n.ehtt-header {\n    display: flex;\n    align-items: center;\n    justify-content: space-between;\n    gap: 8px;\n    padding: 9px 10px;\n    border-bottom: 1px solid #b9aca1;\n    background: #e6e2d3;\n    cursor: move;\n    touch-action: none;\n    user-select: none;\n}\n.ehtt-title { font-size: 14px; font-weight: 700; }\n.ehtt-version { color: #725f57; font-size: 11px; }\n.ehtt-header-meta { display: flex; align-items: center; gap: 7px; }\n.ehtt-minimize {\n    width: 27px;\n    min-height: 24px !important;\n    padding: 0 !important;\n    line-height: 20px;\n}\n.ehtt-body {\n    max-height: calc(100vh - 78px);\n    overflow: auto;\n}\n#ehtt-panel.ehtt-minimized {\n    width: 238px;\n    max-height: none;\n}\n#ehtt-panel.ehtt-minimized .ehtt-header { border-bottom: 0; }\n#ehtt-panel.ehtt-minimized .ehtt-body { display: none; }\n.ehtt-controls {\n    display: grid;\n    grid-template-columns: 1fr 1fr;\n    gap: 7px;\n    padding: 9px 10px;\n}\n#ehtt-panel button {\n    min-width: 0;\n    border: 1px solid #9c8e83;\n    border-radius: 4px;\n    background: #fffef8;\n    color: #3f2224;\n    font: inherit;\n}\n#ehtt-panel button {\n    min-height: 31px;\n    padding: 5px 9px;\n    cursor: pointer;\n    font-weight: 700;\n}\n#ehtt-panel button:disabled { cursor: default; opacity: .52; }\n#ehtt-stop { background: #8f2931 !important; border-color: #741d24 !important; color: #fff !important; }\n#ehtt-restart { background: #315d45 !important; border-color: #244b36 !important; color: #fff !important; }\n.ehtt-log {\n    height: 230px;\n    display: flex;\n    flex-direction: column;\n    background: #252729;\n    color: #e5e5e5;\n    font: 11px/1.45 Consolas, monospace;\n}\n.ehtt-log-overview {\n    flex: none;\n    padding: 7px 9px;\n    border-bottom: 1px solid #4b4d50;\n    background: #1f2123;\n}\n.ehtt-status { color: #91d6a8; font-weight: 700; }\n.ehtt-home-summary { margin-top: 2px; color: #b8b8b8; }\n.ehtt-log-entries {\n    flex: 1;\n    min-height: 0;\n    overflow: auto;\n    padding: 7px 9px;\n}\n.ehtt-log-line { margin: 0 0 3px; overflow-wrap: anywhere; }\n.ehtt-log-link { color: inherit; text-decoration: underline; }\n.ehtt-ok { color: #91d6a8; }\n.ehtt-warn { color: #ffd27d; }\n.ehtt-error { color: #ff8f8f; }\n.ehtt-skip { color: #b8b8b8; }\n        '),
-                document.head.appendChild(styleElement);
-            const panel = document.createElement("section");
-            (panel.id = "ehtt-panel"),
-                (panel.innerHTML = `\n<div class="ehtt-header">\n    <span class="ehtt-title">跨语言 Tag 迁移</span>\n    <span class="ehtt-header-meta">\n        <span class="ehtt-version">wakuwaku · ${SCRIPT_VERSION}</span>\n        <button class="ehtt-minimize" id="ehtt-minimize" type="button" title="最小化">−</button>\n    </span>\n</div>\n<div class="ehtt-body">\n    <div class="ehtt-controls">\n        <button type="button" id="ehtt-stop">停止</button>\n        <button type="button" id="ehtt-restart">重新开始</button>\n        <button type="button" id="ehtt-review-badtags">重新检查错误标签</button>\n        <button type="button" id="ehtt-export-log">导出日志 TXT</button>\n    </div>\n    <div class="ehtt-log" id="ehtt-log">\n        <div class="ehtt-log-overview">\n            <div class="ehtt-status" id="ehtt-status">即将自动开始</div>\n            <div class="ehtt-home-summary" id="ehtt-home-summary" hidden></div>\n        </div>\n        <div class="ehtt-log-entries" id="ehtt-log-entries"></div>\n    </div>\n</div>\n        `),
-                document.body.appendChild(panel);
-            const storedLayout = (function () {
-                try {
-                    const storedLayout = JSON.parse(
-                        localStorage.getItem(UI_STATE_STORAGE_KEY) || "null",
-                    );
-                    return {
-                        left: Number.isFinite(storedLayout?.left) ? storedLayout.left : null,
-                        top: Number.isFinite(storedLayout?.top) ? storedLayout.top : 18,
-                        minimized: !0 === storedLayout?.minimized,
-                    };
-                } catch (error) {
-                    return (
-                        console.warn(`${LOG_PREFIX} 无法读取面板布局`, error),
-                        {
-                            left: null,
-                            top: 18,
-                            minimized: !1,
-                        }
-                    );
-                }
-            })();
-            (runtimeState.ui = {
-                panel: panel,
-                header: panel.querySelector(".ehtt-header"),
-                minimize: panel.querySelector("#ehtt-minimize"),
-                status: panel.querySelector("#ehtt-status"),
-                homeSummary: panel.querySelector("#ehtt-home-summary"),
-                stop: panel.querySelector("#ehtt-stop"),
-                restart: panel.querySelector("#ehtt-restart"),
-                reviewBadTags: panel.querySelector("#ehtt-review-badtags"),
-                exportLog: panel.querySelector("#ehtt-export-log"),
-                logEntries: panel.querySelector("#ehtt-log-entries"),
-            }),
-                (runtimeState.ui.homeSummary.hidden = "home" !== runtimeState.pageMode),
-                updateHomeSummary(),
-                storedLayout.minimized && panel.classList.add("ehtt-minimized"),
-                (runtimeState.ui.minimize.textContent = storedLayout.minimized ? "+" : "−"),
-                (runtimeState.ui.minimize.title = storedLayout.minimized ? "展开" : "最小化"),
-                null !== storedLayout.left &&
-                    ((panel.style.left = `${storedLayout.left}px`),
-                    (panel.style.top = `${storedLayout.top}px`),
-                    (panel.style.right = "auto"),
-                    requestAnimationFrame(() => constrainPanelToViewport(panel))),
-                (function (panel, dragHandle) {
-                    let dragState = null;
-                    function finishDrag(event) {
-                        dragState &&
-                            dragState.pointerId === event.pointerId &&
-                            ((dragState = null),
-                            dragHandle.releasePointerCapture?.(event.pointerId),
-                            savePanelLayout());
-                    }
-                    dragHandle.addEventListener("pointerdown", (event) => {
-                        if (0 !== event.button || event.target.closest("button")) return;
-                        const rect = panel.getBoundingClientRect();
-                        (panel.style.left = `${rect.left}px`),
-                            (panel.style.top = `${rect.top}px`),
-                            (panel.style.right = "auto"),
-                            (dragState = {
-                                pointerId: event.pointerId,
-                                offsetX: event.clientX - rect.left,
-                                offsetY: event.clientY - rect.top,
-                            }),
-                            dragHandle.setPointerCapture?.(event.pointerId),
-                            event.preventDefault();
-                    }),
-                        dragHandle.addEventListener("pointermove", (event) => {
-                            if (!dragState || dragState.pointerId !== event.pointerId) return;
-                            const panelWidth = panel.offsetWidth,
-                                panelHeight = panel.offsetHeight,
-                                left = Math.max(
-                                    0,
-                                    Math.min(
-                                        event.clientX - dragState.offsetX,
-                                        window.innerWidth - panelWidth,
-                                    ),
-                                ),
-                                top = Math.max(
-                                    0,
-                                    Math.min(
-                                        event.clientY - dragState.offsetY,
-                                        window.innerHeight - panelHeight,
-                                    ),
-                                );
-                            (panel.style.left = `${Math.round(left)}px`),
-                                (panel.style.top = `${Math.round(top)}px`);
-                        }),
-                        dragHandle.addEventListener("pointerup", finishDrag),
-                        dragHandle.addEventListener("pointercancel", finishDrag);
-                })(panel, runtimeState.ui.header),
-                runtimeState.ui.minimize.addEventListener("click", () => {
-                    const minimized = panel.classList.toggle("ehtt-minimized");
-                    (runtimeState.ui.minimize.textContent = minimized ? "+" : "−"),
-                        (runtimeState.ui.minimize.title = minimized ? "展开" : "最小化"),
-                        constrainPanelToViewport(panel),
-                        savePanelLayout(),
-                        !minimized && runtimeState.logDomDirty && renderLogEntries();
-                });
-            let resizeFrameId = 0;
-            window.addEventListener("resize", () => {
-                cancelAnimationFrame(resizeFrameId),
-                    (resizeFrameId = requestAnimationFrame(() => {
-                        (resizeFrameId = 0), constrainPanelToViewport(panel), savePanelLayout();
-                    }));
-            }),
-                runtimeState.ui.stop.addEventListener("click", () =>
-                    stopWorker("用户已停止；周期运行已暂停", !1, !0),
-                ),
-                runtimeState.ui.restart.addEventListener("click", () => runWorker()),
-                runtimeState.ui.reviewBadTags.addEventListener("click", () =>
-                    runWorker({
-                        reviewBadTags: !0,
-                    }),
-                ),
-                runtimeState.ui.exportLog.addEventListener("click", exportLog),
-                updateControlState();
-        })();
+        runtimeState.pageMode = detectPageMode();
+        if (!runtimeState.pageMode) return;
+
+        applyVersionStateReset();
+        document.getElementById(STYLE_ELEMENT_ID)?.remove();
+        const styleElement = document.createElement("style");
+        styleElement.id = STYLE_ELEMENT_ID;
+        styleElement.textContent = `
+#ehtt-panel {
+    --ehtt-surface: #222628;
+    --ehtt-surface-raised: #2c3235;
+    --ehtt-border: #626b70;
+    --ehtt-text: #f1f4f5;
+    --ehtt-muted: #b8c0c4;
+    --ehtt-ok: #9cddb1;
+    --ehtt-warn: #ffda87;
+    --ehtt-error: #ff9a9a;
+    position: fixed;
+    right: 14px;
+    bottom: 14px;
+    z-index: 2147483646;
+    width: min(320px, calc(100vw - 28px));
+    overflow: hidden;
+    box-sizing: border-box;
+    border: 1px solid var(--ehtt-border);
+    border-radius: 7px;
+    background: var(--ehtt-surface);
+    color: var(--ehtt-text);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, .32);
+    font: 12px/1.45 "Microsoft YaHei", "Segoe UI", sans-serif;
+    text-align: left;
+}
+#ehtt-panel * { box-sizing: border-box; }
+.ehtt-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--ehtt-border);
+    background: var(--ehtt-surface-raised);
+}
+.ehtt-title { font-size: 13px; font-weight: 700; }
+.ehtt-version { color: var(--ehtt-muted); font-size: 11px; }
+.ehtt-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 8px 10px;
+}
+#ehtt-panel button {
+    min-width: 0;
+    min-height: 32px;
+    padding: 5px 8px;
+    border: 1px solid var(--ehtt-border);
+    border-radius: 4px;
+    background: #f7f4ed;
+    color: #2c3032;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+}
+#ehtt-panel button:focus-visible { outline: 2px solid #9ac8ff; outline-offset: 2px; }
+#ehtt-panel button:disabled { cursor: default; opacity: .5; }
+#ehtt-stop { background: #992f39 !important; border-color: #c66a73 !important; color: #fff !important; }
+#ehtt-restart { background: #34704e !important; border-color: #69a17f !important; color: #fff !important; }
+.ehtt-status {
+    height: calc(4.35em + 16px);
+    padding: 7px 10px;
+    border-top: 1px solid var(--ehtt-border);
+    border-bottom: 1px solid var(--ehtt-border);
+    color: var(--ehtt-ok);
+    font-weight: 700;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+}
+.ehtt-log-entries {
+    max-height: 150px;
+    overflow: auto;
+    padding: 7px 10px;
+    color: var(--ehtt-text);
+    font: 11px/1.45 Consolas, monospace;
+}
+.ehtt-log-line { margin: 0 0 3px; overflow-wrap: anywhere; }
+.ehtt-log-link { color: inherit; text-decoration: underline; }
+.ehtt-ok { color: var(--ehtt-ok); }
+.ehtt-warn { color: var(--ehtt-warn); }
+.ehtt-error { color: var(--ehtt-error); }
+.ehtt-skip { color: var(--ehtt-muted); }
+`;
+        document.head.appendChild(styleElement);
+        const panel = document.createElement("section");
+        panel.id = "ehtt-panel";
+        panel.innerHTML = `
+<header class="ehtt-header">
+    <span class="ehtt-title">跨语言 Tag 迁移</span>
+    <span class="ehtt-version">reina · ${SCRIPT_VERSION}</span>
+</header>
+<div class="ehtt-controls">
+    <button type="button" id="ehtt-stop">停止</button>
+    <button type="button" id="ehtt-restart">重新开始</button>
+    <button type="button" id="ehtt-review-badtags">重新检查错误标签</button>
+    <button type="button" id="ehtt-export-log">导出日志 TXT</button>
+</div>
+<div class="ehtt-status" id="ehtt-status" role="status" aria-live="polite">即将自动开始</div>
+<div class="ehtt-log-entries" id="ehtt-log-entries"></div>
+`;
+        document.body.appendChild(panel);
+        runtimeState.ui = {
+            panel: panel,
+            status: panel.querySelector("#ehtt-status"),
+            stop: panel.querySelector("#ehtt-stop"),
+            restart: panel.querySelector("#ehtt-restart"),
+            reviewBadTags: panel.querySelector("#ehtt-review-badtags"),
+            exportLog: panel.querySelector("#ehtt-export-log"),
+            logEntries: panel.querySelector("#ehtt-log-entries"),
+        };
+        runtimeState.ui.stop.addEventListener("click", pauseAllPages);
+        runtimeState.ui.restart.addEventListener("click", () =>
+            resumeAllPages({ manual: true }),
+        );
+        runtimeState.ui.reviewBadTags.addEventListener("click", () =>
+            runWorker({ manual: true, reviewBadTags: true }),
+        );
+        runtimeState.ui.exportLog.addEventListener("click", exportLog);
+        updateControlState();
+        setupGlobalPauseSync();
         const config = resolveConfig(),
-            homeState = "home" === runtimeState.pageMode ? loadHomeState() : null;
-        (runtimeState.nextRunAt = homeState?.nextRunAt || 0),
-            scheduleLifecycleHeartbeat(),
-            "home" === runtimeState.pageMode &&
+            homeState = runtimeState.pageMode === "home" ? loadHomeState() : null;
+        runtimeState.nextRunAt = homeState?.nextRunAt || 0;
+        runtimeState.scheduleWindow = homeState?.scheduleWindow || null;
+        scheduleLifecycleHeartbeat();
+        if (runtimeState.globallyPaused) {
+            runtimeState.schedulerPaused = true;
+            setStatus("已全局停止；点击重新开始恢复");
+        } else if (
+            runtimeState.pageMode === "home" &&
             homeState.initializedAt &&
             config.scheduleEnabled &&
             homeState.nextRunAt > Date.now()
-                ? (setStatus("等待下一次主页扫描"), scheduleNextRun(config, !0, !1))
-                : (runtimeState.autoTimer = setTimeout(() => {
-                      (runtimeState.autoTimer = null), runWorker();
-                  }, RUNTIME_LIMITS.autoStartDelayMs)),
-            document.addEventListener("visibilitychange", handleLifecycleResume),
-            document.addEventListener("freeze", handleLifecycleSuspend),
-            document.addEventListener("resume", handleLifecycleResume),
-            window.addEventListener("pageshow", handleLifecycleResume),
-            window.addEventListener("focus", handleLifecycleResume),
-            window.addEventListener("beforeunload", handleLifecycleSuspend),
-            window.addEventListener("pagehide", handleLifecycleSuspend),
-            updateControlState();
+        ) {
+            setStatus("等待下一次主页扫描");
+            scheduleNextRun(config, true);
+        } else {
+            runtimeState.autoTimer = setTimeout(() => {
+                runtimeState.autoTimer = null;
+                runWorker();
+            }, RUNTIME_LIMITS.autoStartDelayMs);
+        }
+        document.addEventListener("visibilitychange", handleLifecycleResume);
+        document.addEventListener("freeze", handleLifecycleSuspend);
+        document.addEventListener("resume", handleLifecycleResume);
+        window.addEventListener("pageshow", handleLifecycleResume);
+        window.addEventListener("focus", handleLifecycleResume);
+        window.addEventListener("beforeunload", handleLifecycleSuspend);
+        window.addEventListener("pagehide", handleLifecycleSuspend);
+        updateControlState();
     }
-    const CORE = {
-        SCRIPT_PARAMETERS: SCRIPT_PARAMETERS,
-        NORMAL_RUN_PHASES: NORMAL_RUN_PHASES,
-        WRITE_TRANSPORT: "direct-xhr-verified",
-        UI_LOG_ORDER: UI_LOG_ORDER,
-        DEFAULT_CONFIG: DEFAULT_CONFIG,
-        sanitizeConfig: sanitizeConfig,
-        resolveConfig: resolveConfig,
-        normalizeComparableTitle: normalizeComparableTitle,
-        levenshteinDistance: levenshteinDistance,
-        titleDistanceRatio: titleDistanceRatio,
-        compareTitleSets: compareTitleSets,
-        extractChapterSuffix: extractChapterSuffix,
-        compareChapterSets: compareChapterSets,
-        compareTitleContext: compareTitleContext,
-        canonicalGalleryUrl: canonicalGalleryUrl,
-        galleryIdFromUrl: galleryIdFromUrl,
-        parsePageCount: parsePageCount,
-        findSearchResultPageCount: findSearchResultPageCount,
-        parseGalleryPostedAt: parseGalleryPostedAt,
-        normalizeTag: normalizeTag,
-        getExplicitLanguage: getExplicitLanguage,
-        classifyLanguage: classifyLanguage,
-        hasSameExplicitLanguage: hasSameExplicitLanguage,
-        assessCandidate: assessCandidate,
-        parseTitleIdentity: parseTitleIdentity,
-        creatorTagSets: creatorTagSets,
-        buildSearchQueries: buildSearchQueries,
-        buildSearchUrl: buildSearchUrl,
-        shouldContinueSearchPages: shouldContinueSearchPages,
-        shouldRunJapaneseSearch: shouldRunJapaneseSearch,
-        isStrongPreviewCandidate: isStrongPreviewCandidate,
-        getSearchWaitMs: getSearchWaitMs,
-        delay: delay,
-        parseSearchResults: parseSearchResults,
-        selectBestLanguageCandidates: selectBestLanguageCandidates,
-        selectTransferCandidates: selectTransferCandidates,
-        parseBadTagRecords: parseBadTagRecords,
-        badTagRecordFingerprint: badTagRecordFingerprint,
-        readInlineScriptAssignment: readInlineScriptAssignment,
-        isTrustedTagApiUrl: isTrustedTagApiUrl,
-        parseGalleryWriteContext: parseGalleryWriteContext,
-        buildTagGalleryPayload: buildTagGalleryPayload,
-        isUsableGalleryDocument: isUsableGalleryDocument,
-        sanitizeBadTagState: sanitizeBadTagState,
-        selectBadTagRecords: selectBadTagRecords,
-        selectBadTagBatch: selectBadTagBatch,
-        getBadTagCorrectionStrategy: getBadTagCorrectionStrategy,
-        isUnavailableGalleryStatus: isUnavailableGalleryStatus,
-        isTerminalBadTagStatus: isTerminalBadTagStatus,
-        isBadTagVoteLockedMessage: isBadTagVoteLockedMessage,
-        createLogEntry: createLogEntry,
-        trimLogEntries: trimLogEntries,
-        formatLogEntry: formatLogEntry,
-        buildLogExportText: buildLogExportText,
-        buildLogExportFilename: buildLogExportFilename,
-        shouldDeferLogRender: shouldDeferLogRender,
-        sanitizeHomeState: sanitizeHomeState,
-        mergeHomepageResults: mergeHomepageResults,
-        findReadyHomeJob: findReadyHomeJob,
-        beginHomeJob: beginHomeJob,
-        retryHomeJob: retryHomeJob,
-        preserveHomeJobAfterBudget: preserveHomeJobAfterBudget,
-        completeHomeGroup: completeHomeGroup,
-        getHomeJobDisposition: getHomeJobDisposition,
-        getScheduleState: getScheduleState,
-        shouldHandleLifecycleResume: shouldHandleLifecycleResume,
-        isForeignWorkerLock: isForeignWorkerLock,
-        getInterruptedRunState: getInterruptedRunState,
-        createRequestBudget: createRequestBudget,
-        setRequestBudgetReserve: setRequestBudgetReserve,
-        getRequestBudgetRemaining: getRequestBudgetRemaining,
-        consumeRequestBudget: consumeRequestBudget,
-        isRetryableFetchError: isRetryableFetchError,
-        compileBlacklist: compileBlacklist,
-        isBlacklisted: isBlacklisted,
-        buildTransferTagUnion: buildTransferTagUnion,
-        selectNewestGallery: selectNewestGallery,
-        buildTransferPlan: buildTransferPlan,
-        planTargetTags: planTargetTags,
-        buildTagBatches: buildTagBatches,
-        reconcileTagVoteBatch: reconcileTagVoteBatch,
-    };
-    "undefined" != typeof module && module.exports && (module.exports = CORE),
-        "undefined" != typeof window &&
-            "undefined" != typeof document &&
-            ("loading" === document.readyState
-                ? document.addEventListener("DOMContentLoaded", initialize, {
-                      once: !0,
-                  })
-                : initialize());
-})();
+    // 8. 搜索阶段与测试入口
+    const SEARCH_PIPELINE = Object.freeze({
+        discover: discoverSearchCandidates,
+        prefilter: prefilterSearchCandidates,
+        loadProgressiveDetails: loadProgressiveCandidateDetails,
+        selectFinal: selectFinalSearchCandidates,
+        run: runSearchPipeline,
+    });
+    const CORE = Object.freeze({
+        version: SCRIPT_VERSION,
+        transport: "direct-xhr-verified",
+        parameters: SCRIPT_PARAMETERS,
+        defaults: DEFAULT_CONFIG,
+        limits: Object.freeze({ visibleLogs: VISIBLE_LOG_LIMIT }),
+        config: Object.freeze({ sanitize: sanitizeConfig, resolve: resolveConfig }),
+        matching: Object.freeze({
+            assessCandidate: assessCandidate,
+            selectBestByLanguage: selectBestLanguageCandidates,
+            selectForTransfer: selectTransferCandidates,
+        }),
+        search: Object.freeze({
+            phases: SEARCH_PHASES,
+            pipeline: SEARCH_PIPELINE,
+            buildQueries: buildSearchQueries,
+            buildUrl: buildSearchUrl,
+        }),
+        transfer: Object.freeze({
+            compileBlacklist: compileBlacklist,
+            isBlacklisted: isBlacklisted,
+            classifyCorrectionState: classifyCorrectionState,
+            buildTagUnion: buildTransferTagUnion,
+            collectTagSourceUrls: collectTagSourceUrls,
+            buildTargetTagSet: buildTargetTagSet,
+            selectNewest: selectNewestGallery,
+            buildPlan: buildTransferPlan,
+            planTarget: planTargetTags,
+            planRandomTagSkip: planRandomTagSkip,
+            buildBatches: buildTagBatches,
+            reconcileBatch: reconcileTagVoteBatch,
+        }),
+        repository: Object.freeze({
+            parseReport: parseBadTagReport,
+            buildAudit: buildBadTagAudit,
+            fingerprint: badTagRecordFingerprint,
+            sanitizeState: sanitizeBadTagState,
+            selectRecords: selectBadTagRecords,
+            selectBatch: selectBadTagBatch,
+            correctionStrategy: getBadTagCorrectionStrategy,
+        }),
+        writeProtocol: Object.freeze({
+            parseContext: parseGalleryWriteContext,
+            buildPayload: buildTagGalleryPayload,
+            isTrustedApiUrl: isTrustedTagApiUrl,
+            isUsableGallery: isUsableGalleryDocument,
+        }),
+        logs: Object.freeze({
+            createEntry: createLogEntry,
+            trimEntries: trimLogEntries,
+            formatEntry: formatLogEntry,
+            buildExportText: buildLogExportText,
+            buildFilename: buildLogExportFilename,
+            shouldDeferRender: shouldDeferLogRender,
+        }),
+        home: Object.freeze({
+            sanitizeState: sanitizeHomeState,
+            mergeResults: mergeHomepageResults,
+            galleryIdFromUrl: galleryIdFromUrl,
+            findReadyJob: findReadyHomeJob,
+            beginJob: beginHomeJob,
+            retryJob: retryHomeJob,
+            preserveJobAfterBudget: preserveHomeJobAfterBudget,
+            completeGroup: completeHomeGroup,
+            getDisposition: getHomeJobDisposition,
+        }),
+        schedule: Object.freeze({
+            parseMinutes: parseScheduleMinutes,
+            resolveWindow: resolveDailyScheduleWindow,
+            isWithinWindow: isWithinDailyScheduleWindow,
+            alignRunAt: alignScheduledRunAt,
+            getState: getScheduleState,
+        }),
+        requests: Object.freeze({
+            runLifecycle: runRequestLifecycle,
+            delay: delay,
+            isRetryableError: isRetryableFetchError,
+            createBudget: createRequestBudget,
+            setReserve: setRequestBudgetReserve,
+            getRemaining: getRequestBudgetRemaining,
+            canStartVerifiedVote: canStartVerifiedTagVote,
+            consumeBudget: consumeRequestBudget,
+        }),
+        coordination: Object.freeze({
+            sanitizePause: sanitizeGlobalPauseState,
+            planVersionReset: planVersionStateReset,
+            isForeignLock: isForeignWorkerLock,
+            getInterruptedState: getInterruptedRunState,
+            shouldResumeLifecycle: shouldHandleLifecycleResume,
+        }),
+    });
+    if (typeof module !== "undefined" && module.exports) module.exports = CORE;
+    if (typeof window !== "undefined" && typeof document !== "undefined") {
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", initialize, { once: true });
+        } else {
+            initialize();
+        }
+    }
+}
+
+createEhTagTransferModule();

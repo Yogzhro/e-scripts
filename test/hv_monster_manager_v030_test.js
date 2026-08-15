@@ -34,7 +34,7 @@ function positiveNumber(value) {
   return Number.isFinite(number) && number > 0 ? number : 0;
 }
 
-assert(source.includes('// @version      0.3.3.0'));
+assert(source.includes('// @version      0.3.5.0'));
 
 assert(!source.includes('LANGUAGE_STORE_KEY'));
 assert(!source.includes('function languageFromChoice('));
@@ -83,8 +83,8 @@ assert.equal(customSaved, 1);
 assert.equal(customStatus, 'statusCustomOrderPrices');
 
 assert(!source.includes('for ${available}/${needed} visible batch(es)'));
-assert(source.includes('Full spend unavailable'));
-assert(source.includes('无法估算完整消耗'));
+assert(source.includes('Read order books first'));
+assert(source.includes('请先读取订单簿'));
 assert(source.includes('tableEstimatedCost: ["Full Spend Estimate", "完整预估消耗"]'));
 
 const planAskSweep = Function(
@@ -99,4 +99,4 @@ assert.equal(partial.coveredBatches, 15);
 assert.equal(partial.remainingBatches, 5);
 assert.equal(partial.estimatedCost, 1650);
 
-console.log('HV Monster Manager 0.3.3.0 tests passed.');
+console.log('HV Monster Manager baseline behavior tests passed.');

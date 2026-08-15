@@ -53,15 +53,16 @@ function fakeElt(tag, attrs = {}, children = []) {
 }
 
 assert(source.includes('// @name         HV Monster Manager'));
-assert(source.includes('// @version      0.3.3.0'));
+assert(source.includes('// @version      0.3.5.0'));
 for (const pair of [
   ['plannerTitle', 'PL Planner', 'PL计划器'],
   ['renameTitle', 'Monster Rename', '怪物重命名'],
   ['headingMonsterRename', 'Rename', '重命名'],
   ['headingMonsterSelection', 'Select Monsters', '选择怪物'],
-  ['headingUpgradePlan', 'Upgrade Plan', '升级方案'],
+  ['headingUpgradeEditor', 'Upgrade Editor', '升级编辑器'],
+  ['headingUpgradeResources', 'Upgrade Resources, Inventory and Shortage', '升级资源需求、库存与缺口'],
   ['headingLog', 'Log', '日志'],
-  ['buttonRefreshData', 'Refresh Data', '刷新数据'],
+  ['buttonCalculatePlan', 'Calculate Exact Plan', '计算精确方案'],
   ['buttonDirectBuy', 'Direct Buy Crystals', '直接买入水晶'],
   ['buttonRunUpgrade', 'Upgrade Selected Monsters', '升级选中怪物'],
   ['buttonExportNames', 'Export All Monster Names', '导出全部怪物名字'],
@@ -102,7 +103,7 @@ assert(
   'the dedicated rename section must be expanded by default'
 );
 assert(
-  source.includes("id: 'hvmepp-crystal-section', headingKey: 'headingCrystalNeeds'")
+  source.includes("id: 'hvmepp-crystal-section', headingKey: 'headingUpgradeResources'")
     && source.includes('openWhenCustom: true'),
   'crystal requirements must be collapsed unless custom buy prices are active'
 );
@@ -113,7 +114,8 @@ assert(
 );
 
 assert(source.includes("contentId: 'hvmepp-crystal-result'"));
-assert(source.includes("contentId: 'hvmepp-upgrade-result'"));
+assert(source.includes("contentClass: 'hvmepp-upgrade-editor'"));
+assert(!source.includes("contentId: 'hvmepp-upgrade-result'"));
 assert(source.includes("contentId: 'hvmepp-log-output'"));
 assert(source.includes("childIds: ['hvmepp-log-summary', 'hvmepp-log-message']"));
 assert(!source.includes("id: 'hvmepp-live'"));
@@ -133,7 +135,7 @@ for (const id of [
   'hvmepp-target',
   'hvmepp-source',
   'hvmepp-order-source',
-  'hvmepp-refresh-data',
+  'hvmepp-calculate-plan',
   'hvmepp-direct-buy',
   'hvmepp-place-buy-orders',
   'hvmepp-run-upgrade',
@@ -141,8 +143,8 @@ for (const id of [
   assert(source.includes(id), `${id} must be in the planner top controls/configuration`);
 }
 assert(plannerControlsSource.includes('PLANNER_ACTION_CONFIGS.map'));
-assert(source.includes('async function refreshAllData()'));
-const crystalPlanSource = extractFunction('renderCrystalPlan');
+assert(source.includes('function calculateExactPlan()'));
+const crystalPlanSource = extractFunction('renderUpgradeResources');
 assert(!crystalPlanSource.includes('hvmepp-load-stock'));
 assert(!crystalPlanSource.includes('hvmepp-direct-buy'));
 assert(!crystalPlanSource.includes('hvmepp-place-buy-orders'));
@@ -194,7 +196,7 @@ referencedTranslationKeys.forEach((key) => {
 assert(source.includes('width:var(--hvmm-panel-width,100%);'));
 assert(source.includes("class: 'hvut-ml-up hvmepp-panel'"));
 assert(!source.includes("id: 'hvmepp-overlay'"));
-const mobileCss = source.slice(source.indexOf('@media (max-width:900px)'));
+const mobileCss = source.slice(source.indexOf('@media(max-width:900px)'));
 assert(!mobileCss.includes('width:calc(100vw - 10px);'));
 
 assert(!source.includes('headingBatchRename'));

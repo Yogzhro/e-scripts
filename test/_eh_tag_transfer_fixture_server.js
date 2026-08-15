@@ -106,6 +106,81 @@ const galleries = {
             ['group:fixture circle'],
             ['female:sole female']
         ]
+    },
+    correctionTarget: {
+        path: '/g/500009/c009c009c0/',
+        title: '[Fixture Circle] Correction Branch Fixture [English] [Digital]',
+        japaneseTitle: '',
+        pages: 20,
+        postedAt: '2026-08-10 12:00',
+        tags: [
+            ['language:english'],
+            ['language:translated'],
+            ['group:fixture circle'],
+            ['artist:fixture artist'],
+            ['female:glasses', {solid: false, downvoted: true}]
+        ]
+    },
+    correctionSource: {
+        path: '/g/500010/c010c010c0/',
+        title: '[Fixture Circle] Correction Branch Fixture [Chinese] [Uncensored] [Digital]',
+        japaneseTitle: '',
+        pages: 20,
+        postedAt: '2025-08-10 12:00',
+        tags: [
+            ['language:chinese'],
+            ['language:translated'],
+            ['group:fixture circle'],
+            ['artist:fixture artist'],
+            ['female:glasses'],
+            ['female:sole female'],
+            ['other:uncensored']
+        ]
+    },
+    derivedOnly: {
+        path: '/g/500011/c011c011c0/',
+        title: '[Fixture Circle] Derived Only Fixture [Korean] [Decensored] [Digital]',
+        japaneseTitle: '',
+        pages: 20,
+        postedAt: '2026-08-11 12:00',
+        tags: [
+            ['language:korean'],
+            ['language:translated'],
+            ['group:fixture circle']
+        ]
+    },
+    randomSkipTarget: {
+        path: '/g/500012/c012c012c0/',
+        title: '[Fixture Circle] Random Skip Fixture [English] [Uncensored] [Digital]',
+        japaneseTitle: '',
+        pages: 20,
+        postedAt: '2026-08-12 12:00',
+        tags: [
+            ['language:english'],
+            ['language:translated'],
+            ['group:fixture circle'],
+            ['artist:fixture artist'],
+            ['female:glasses', {solid: false, downvoted: true}]
+        ]
+    },
+    randomSkipSource: {
+        path: '/g/500013/c013c013c0/',
+        title: '[Fixture Circle] Random Skip Fixture [Chinese] [Uncensored] [Digital]',
+        japaneseTitle: '',
+        pages: 20,
+        postedAt: '2025-08-12 12:00',
+        tags: [
+            ['language:chinese'],
+            ['language:translated'],
+            ['group:fixture circle'],
+            ['artist:fixture artist'],
+            ['female:glasses'],
+            ['female:sole female'],
+            ['male:sole male'],
+            ['other:uncensored'],
+            ['parody:random skip fixture'],
+            ['parody:random skip fixture series']
+        ]
     }
 };
 
@@ -172,6 +247,12 @@ function userscriptSetup() {
         nextRunAt: 0
     };
     return `<script>
+        const fixtureRandomMode = new URLSearchParams(location.search).get('random');
+        if (fixtureRandomMode === 'max') {
+            Math.random = () => 0.999999999;
+        } else if (fixtureRandomMode === 'zero') {
+            Math.random = () => 0;
+        }
         if (new URLSearchParams(location.search).has('reset')) {
             localStorage.clear();
         }
@@ -184,6 +265,41 @@ function userscriptSetup() {
         for (const event of JSON.parse(localStorage.getItem('ehtt.fixture.events') || '[]')) {
             renderFixtureEvent(event);
         }
+
+        const gmPrefix = 'ehtt.fixture.gm.';
+        const gmListeners = new Map();
+        let gmListenerId = 0;
+        const readGmValue = (name, fallback) => {
+            const raw = localStorage.getItem(gmPrefix + name);
+            if (raw === null) return fallback;
+            try { return JSON.parse(raw); } catch { return fallback; }
+        };
+        window.GM_getValue = readGmValue;
+        window.GM_setValue = (name, value) => {
+            const oldValue = readGmValue(name, undefined);
+            localStorage.setItem(gmPrefix + name, JSON.stringify(value));
+            for (const listener of gmListeners.values()) {
+                if (listener.name === name) listener.callback(name, oldValue, value, false);
+            }
+        };
+        window.GM_addValueChangeListener = (name, callback) => {
+            const id = ++gmListenerId;
+            gmListeners.set(id, {name, callback});
+            return id;
+        };
+        window.addEventListener('storage', event => {
+            if (!event.key?.startsWith(gmPrefix)) return;
+            const name = event.key.slice(gmPrefix.length);
+            const parse = value => {
+                try { return value === null ? undefined : JSON.parse(value); }
+                catch { return undefined; }
+            };
+            for (const listener of gmListeners.values()) {
+                if (listener.name === name) {
+                    listener.callback(name, parse(event.oldValue), parse(event.newValue), true);
+                }
+            }
+        });
 
         window.GM_xmlhttpRequest = function(options) {
             const controller = new AbortController();
@@ -269,6 +385,20 @@ function searchRow(gallery) {
 }
 
 function searchHtml(url) {
+    const searchTerm = url.searchParams.get('f_search') || '';
+    if (searchTerm.includes('Correction Branch Fixture')) {
+        return `<!doctype html><html><body><table class="itg"><tbody>${searchRow(
+            galleries.correctionSource
+        )}</tbody></table></body></html>`;
+    }
+    if (searchTerm.includes('Derived Only Fixture')) {
+        return '<!doctype html><html><body><table class="itg"><tbody></tbody></table></body></html>';
+    }
+    if (searchTerm.includes('Random Skip Fixture')) {
+        return `<!doctype html><html><body><table class="itg"><tbody>${searchRow(
+            galleries.randomSkipSource
+        )}</tbody></table></body></html>`;
+    }
     const onSecondPage = url.searchParams.get('next') === 'fixture';
     const rows = onSecondPage
         ? searchRow(galleries.digital)
@@ -354,6 +484,20 @@ function homepageAuditRuntime() {
                 });
             }
         };
+        const renderStatusAudit = mode => requestAnimationFrame(() => {
+            const panel = document.getElementById('ehtt-panel');
+            const status = document.getElementById('ehtt-status');
+            if (!panel || !status) return;
+            document.getElementById('fixture-status-audit').textContent = JSON.stringify({
+                mode,
+                panelHeight: panel.getBoundingClientRect().height,
+                statusHeight: status.getBoundingClientRect().height,
+                scrollHeight: status.scrollHeight,
+                clientHeight: status.clientHeight,
+                overflow: getComputedStyle(status).overflow,
+                isClipped: status.scrollHeight > status.clientHeight
+            });
+        });
         document.getElementById('fixture-freeze').addEventListener('click', () => {
             setFixtureVisibility('hidden');
             document.dispatchEvent(new Event('visibilitychange'));
@@ -365,6 +509,17 @@ function homepageAuditRuntime() {
         document.getElementById('fixture-visible').addEventListener('click', () => {
             setFixtureVisibility('visible');
             document.dispatchEvent(new Event('visibilitychange'));
+        });
+        document.getElementById('fixture-status-short').addEventListener('click', () => {
+            document.getElementById('ehtt-status').textContent = '短状态';
+            renderStatusAudit('short');
+        });
+        document.getElementById('fixture-status-long').addEventListener('click', () => {
+            document.getElementById('ehtt-status').textContent =
+                '这是用于验证固定三行高度的长状态文字，内容会持续换行并超过第三行，' +
+                '超出部分应当直接截断，且状态栏和整个面板的高度都不得发生变化。' +
+                '这段额外文字保证内容明确进入第四行以后，隐藏部分不会扩大状态栏。';
+            renderStatusAudit('long');
         });
         renderAudit();
     })();
@@ -381,12 +536,18 @@ function homepageHtml(url) {
 <head><meta charset="utf-8"><title>Tag Transfer Homepage Fixture</title></head>
 <body>
     <a id="fixture-show-new" href="/fixture/show-new">显示新画廊</a>
+    <a id="fixture-correction-target" href="${galleries.correctionTarget.path}?reset=1&amp;run=1&amp;random=zero">未标注分支</a>
+    <a id="fixture-derived-only" href="${galleries.derivedOnly.path}?reset=1&amp;run=1&amp;random=zero">仅标题派生</a>
+    <a id="fixture-random-skip" href="${galleries.randomSkipTarget.path}?reset=1&amp;run=1&amp;random=max">随机少迁移</a>
     <button type="button" id="fixture-freeze">模拟后台冻结</button>
     <button type="button" id="fixture-resume-hidden">模拟隐藏恢复</button>
     <button type="button" id="fixture-visible">恢复可见</button>
+    <button type="button" id="fixture-status-short">短状态</button>
+    <button type="button" id="fixture-status-long">超长状态</button>
     <table class="itg"><tbody>${rows.map(searchRow).join('')}</tbody></table>
     <div id="fixture-events" hidden></div>
     <pre id="fixture-home-audit"></pre>
+    <pre id="fixture-status-audit"></pre>
     ${clientRuntime()}
     ${userscriptSetup()}
     <script src="/tag-transfer.user.js"></script>

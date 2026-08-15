@@ -1,0 +1,1231 @@
+<!doctype html>
+<html lang="zh-CN" data-dokidoki-preview="1" data-dokidoki-layout="workbench">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dokidoki — Monster Lab Compact Workbench Preview</title>
+  <style>
+    :root {
+      --preview-page: #e3e0d1;
+      --preview-paper: #f7f2e4;
+      --preview-paper-2: #eee5d1;
+      --preview-paper-3: #fff9ec;
+      --preview-ink: #3f302b;
+      --preview-muted: #74665d;
+      --preview-line: #b9a78a;
+      --preview-amber: #9b6a24;
+      --preview-brass: #b27a28;
+      --preview-good: #2f6a3b;
+      --preview-danger: #8e2636;
+      --preview-wine: #5c0d11;
+      --preview-focus: #c48122;
+      --preview-shadow: rgba(63, 48, 43, .15);
+      --preview-gap: 8px;
+      --preview-radius: 6px;
+      --preview-touch: 44px;
+      --preview-display: Georgia, "Noto Serif SC", serif;
+      --preview-body: Verdana, "Noto Sans SC", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { min-width: 0; background: var(--preview-page); color: var(--preview-ink); }
+    html[data-dokidoki-preview="1"][data-dokidoki-layout="workbench"] body { min-width: 0; min-height: 100dvh; margin: 0; background: radial-gradient(circle at 80% 0, rgba(178,122,40,.09), transparent 35%), var(--preview-page); color: var(--preview-ink); font: 12px/1.45 var(--preview-body); }
+    button, input, select, textarea { font: inherit; }
+    button, a, [role="button"], [role="option"] { touch-action: manipulation; }
+    button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [role="button"]:focus-visible, [role="option"]:focus-visible { outline: 3px solid rgba(196,129,34,.45); outline-offset: 2px; }
+    #dokidoki-preview-skip { position: fixed; left: 12px; top: -80px; z-index: 1000; padding: 10px 14px; border-radius: 4px; background: var(--preview-paper-3); color: var(--preview-ink); font-weight: 700; }
+    #dokidoki-preview-skip:focus { top: 8px; }
+    #dokidoki-preview-command-bar { position: sticky; top: 0; z-index: 40; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 48px; padding: 0 10px; border-bottom: 2px solid var(--preview-brass); background: var(--preview-ink); color: var(--preview-paper-3); box-shadow: 0 4px 14px rgba(63,48,43,.2); }
+    .preview-offline-badge { display: inline-flex; align-items: center; gap: 5px; min-height: 28px; padding: 3px 8px; border: 1px solid rgba(255,249,236,.38); border-radius: 999px; color: #eadfca; font-size: 10px; font-weight: 700; white-space: nowrap; }
+    .preview-offline-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--preview-wine); box-shadow: 0 0 0 2px rgba(255,249,236,.2); }
+    #dokidoki-preview-command-bar #dokidoki-preview-nav, #dokidoki-preview-command-bar #dokidoki-preview-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 5px; }
+    #dokidoki-preview-command-bar #dokidoki-preview-nav { margin: 0; padding: 0; border: 0; background: transparent; }
+    #dokidoki-preview-command-bar #dokidoki-preview-nav a { min-height: var(--preview-touch); padding: 12px 9px 8px; border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; color: #f4ead7; font-weight: 700; text-decoration: none; }
+    #dokidoki-preview-command-bar #dokidoki-preview-nav a:hover, #dokidoki-preview-command-bar #dokidoki-preview-nav a[aria-current="page"] { border-bottom-color: var(--preview-brass); background: rgba(255,249,236,.08); color: #fff; }
+    #dokidoki-preview-command-bar #dokidoki-preview-controls button { min-width: var(--preview-touch); min-height: var(--preview-touch); padding: 6px 8px; border: 1px solid #8e8175; border-radius: 4px; background: #54443d; color: var(--preview-paper-3); cursor: pointer; }
+    #dokidoki-preview-command-bar #dokidoki-preview-controls button[aria-pressed="true"] { border-color: #e1b866; background: var(--preview-paper-3); color: var(--preview-ink); }
+    #dokidoki-preview-main { padding: 8px 10px 12px; }
+    #dokidoki-preview-stage { width: 100%; max-width: 1536px; margin-inline: auto; transition: max-width .18s ease; }
+    #dokidoki-preview-stage[data-preview-width="1536"] { max-width: 1536px; }
+    #dokidoki-preview-stage[data-preview-width="1280"] { max-width: 1280px; }
+    #dokidoki-preview-stage[data-preview-width="1024"] { max-width: 1024px; }
+    #dokidoki-preview-stage[data-preview-width="900"] { max-width: 900px; }
+    #dokidoki-preview-stage[data-preview-width="640"] { max-width: 640px; }
+    #dokidoki-preview-stage[data-preview-width="375"] { max-width: 375px; }
+    [data-preview-view][hidden] { display: none !important; }
+    .preview-surface { border: 1px solid var(--preview-line); border-radius: var(--preview-radius); background: var(--preview-paper); box-shadow: 0 3px 10px var(--preview-shadow); }
+    .preview-kicker { margin: 0 0 2px; color: var(--preview-amber); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .preview-title { margin: 0; color: var(--preview-ink); font: 700 20px/1.15 var(--preview-display); }
+    .preview-muted { color: var(--preview-muted); }
+    .preview-chip { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 7px; border: 1px solid var(--preview-line); border-radius: 999px; background: var(--preview-paper-3); color: var(--preview-muted); font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .preview-chip.is-good { border-color: #719173; color: var(--preview-good); }
+    .preview-chip.is-warn { border-color: #c59b52; color: #78501a; }
+    .preview-section-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 42px; margin: 0; padding: 8px 10px; border-bottom: 1px solid var(--preview-line); background: var(--preview-paper-2); color: var(--preview-ink); font: 700 14px/1.2 var(--preview-display); }
+    .preview-section-body { padding: 9px; }
+
+    html[data-dokidoki-layout="workbench"] #mainpane { width: 100% !important; max-width: none !important; height: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; }
+    html[data-dokidoki-layout="workbench"] #monster_outer { display: grid !important; grid-template-columns: 220px minmax(0, 1fr); grid-template-areas: "rail shell"; align-items: stretch; gap: var(--preview-gap); width: 100% !important; height: auto !important; margin: 0 !important; color: var(--preview-ink) !important; }
+    .preview-workspace-stats { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }
+    #dokidoki-preview-lab-nav { grid-area: rail; min-width: 0; overflow: hidden; }
+    #dokidoki-preview-filter-toggle { width: 100%; min-height: var(--preview-touch); padding: 7px 9px; border: 0; border-bottom: 1px solid var(--preview-line); background: var(--preview-paper-2); color: var(--preview-ink); font-weight: 700; cursor: pointer; }
+    .preview-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .preview-metric { padding: 7px; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper-3); }
+    .preview-metric strong { display: block; color: var(--preview-ink); font: 700 18px/1 var(--preview-display); font-variant-numeric: tabular-nums; }
+    .preview-metric span { display: block; margin-top: 3px; color: var(--preview-muted); font-size: 9px; }
+    .preview-filter { display: grid; gap: 5px; margin-top: 9px; }
+    .preview-filter label { color: var(--preview-muted); font-size: 10px; font-weight: 700; }
+    .preview-filter input, .preview-filter select { width: 100%; min-height: var(--preview-touch); padding: 7px 8px; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper-3); color: var(--preview-ink); }
+    .preview-rail-links { display: grid; gap: 6px; margin-top: 9px; }
+    .preview-rail-links a { display: grid; place-items: center; min-height: var(--preview-touch); padding: 7px; border: 1px solid var(--preview-brass); border-radius: 4px; background: #f0dfbd; color: var(--preview-ink); font-weight: 700; text-align: center; text-decoration: none; }
+    .preview-rail-note { margin: 9px 0 0; padding: 7px; border-left: 3px solid var(--preview-brass); background: var(--preview-paper-2); color: var(--preview-muted); font-size: 10px; }
+    #dokidoki-preview-stage[data-preview-filter-collapsed="true"] #monster_outer { grid-template-columns: 48px minmax(0, 1fr); }
+    #dokidoki-preview-stage[data-preview-filter-collapsed="true"] #dokidoki-preview-lab-nav .preview-section-title,
+    #dokidoki-preview-stage[data-preview-filter-collapsed="true"] #dokidoki-preview-lab-nav .preview-section-body { display: none; }
+    #dokidoki-preview-stage[data-preview-filter-collapsed="true"] #dokidoki-preview-filter-toggle { min-height: 180px; border-bottom: 0; writing-mode: vertical-rl; }
+
+    html[data-dokidoki-layout="workbench"] #dokidoki-shell { grid-area: shell; width: 100% !important; min-width: 0 !important; height: 100% !important; padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: transparent !important; box-shadow: none !important; color: var(--preview-ink) !important; font: 12px/1.4 var(--preview-body) !important; }
+    html[data-dokidoki-layout="workbench"] #dokidoki-toolbar { position: static !important; container-type: inline-size; container-name: dokidoki-toolbar; margin: 0 0 7px !important; padding: 7px !important; border: 1px solid var(--preview-line) !important; border-radius: var(--preview-radius) !important; background: var(--preview-paper) !important; box-shadow: 0 3px 10px var(--preview-shadow) !important; }
+    #dokidoki-preview-tool-drawer { display: contents; }
+    #dokidoki-preview-tool-drawer > summary, .preview-tool-group-label { display: none; }
+    html[data-dokidoki-layout="workbench"] #dokidoki-toolbar .hvut-ml-side { position: static !important; display: grid !important; grid-template-columns: repeat(9, minmax(0, 1fr)) !important; gap: 6px !important; width: 100% !important; height: auto !important; margin: 0 !important; padding: 0 !important; }
+    html[data-dokidoki-layout="workbench"] #dokidoki-toolbar .hvut-ml-side input { width: 100% !important; min-width: 0 !important; min-height: var(--preview-touch) !important; margin: 0 !important; padding: 6px 5px !important; overflow: hidden; border: 1px solid var(--preview-line) !important; border-radius: 4px !important; background: var(--preview-paper-3) !important; color: var(--preview-ink) !important; font: 700 10px/1.2 var(--preview-body) !important; text-overflow: ellipsis; white-space: nowrap !important; }
+    html[data-dokidoki-layout="workbench"] #dokidoki-toolbar [data-dokidoki-group="data"] { border-left: 4px solid #8f8174 !important; background: #f2eee5 !important; }
+    html[data-dokidoki-layout="workbench"] #dokidoki-toolbar [data-dokidoki-group="monster"] { border-color: var(--preview-amber) !important; background: #f3e4c8 !important; }
+    html[data-dokidoki-layout="workbench"] #dokidoki-toolbar [data-dokidoki-group="manager"] { border: 2px solid var(--preview-brass) !important; background: #ead4a8 !important; color: var(--preview-ink) !important; }
+    @container dokidoki-toolbar (max-width: 1019px) {
+      html[data-dokidoki-layout="workbench"] #dokidoki-toolbar .hvut-ml-side { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; }
+    }
+    @container dokidoki-toolbar (max-width: 639px) {
+      #dokidoki-preview-tool-drawer { display: block; }
+      #dokidoki-preview-tool-drawer > summary { display: flex; align-items: center; justify-content: space-between; min-height: var(--preview-touch); padding: 7px 9px; border: 1px solid var(--preview-brass); border-radius: 4px; background: #ead4a8; color: var(--preview-ink); font-weight: 700; cursor: pointer; }
+      #dokidoki-preview-tool-drawer[open] > summary { margin-bottom: 6px; }
+      html[data-dokidoki-layout="workbench"] #dokidoki-toolbar .hvut-ml-side { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+      .preview-tool-group-label { display: block; grid-column: 1 / -1; padding: 5px 2px 2px; border-bottom: 1px solid var(--preview-line); color: var(--preview-muted); font-size: 10px; font-weight: 700; }
+    }
+    html[data-dokidoki-layout="workbench"] #dokidoki-list-view { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 560px; height: calc(100dvh - 68px); max-height: 840px; }
+    html[data-dokidoki-layout="workbench"] #monster_list { display: grid !important; grid-template-rows: auto minmax(0, 1fr); min-height: 0; width: 100% !important; height: auto !important; margin: 0 !important; }
+    html[data-dokidoki-layout="workbench"] .hvut-ml-sort { position: static !important; display: flex !important; flex-wrap: wrap !important; gap: 5px !important; width: 100% !important; min-height: var(--preview-touch) !important; margin: 0 0 6px !important; padding: 4px !important; border: 1px solid var(--preview-line) !important; border-radius: 5px !important; background: var(--preview-paper-2) !important; }
+    html[data-dokidoki-layout="workbench"] .hvut-ml-sort > span { display: grid !important; place-items: center; width: auto !important; min-width: 54px !important; min-height: 34px !important; margin: 0 !important; padding: 4px 8px !important; border: 1px solid transparent !important; border-radius: 999px !important; color: var(--preview-muted) !important; font: 700 10px/1.3 var(--preview-body) !important; cursor: pointer; }
+    html[data-dokidoki-layout="workbench"] .hvut-ml-sort > span:hover,
+    html[data-dokidoki-layout="workbench"] .hvut-ml-sort > .hvut-ml-sort-current { border-color: var(--preview-brass) !important; background: var(--preview-paper-3) !important; color: var(--preview-ink) !important; }
+    html[data-dokidoki-layout="workbench"] #slot_pane { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 7px !important; width: 100% !important; height: 100% !important; min-height: 0 !important; max-height: none !important; margin: 0 !important; padding: 0 !important; overflow: hidden !important; }
+    html[data-dokidoki-layout="workbench"] #slot_pane[data-preview-roster-mode="single"] { grid-template-columns: 1fr !important; }
+    .preview-roster-pane { display: grid; grid-template-rows: 36px minmax(0, 1fr); min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--preview-line); border-radius: 5px; background: var(--preview-paper-2); }
+    .preview-roster-pane[hidden] { display: none !important; }
+    .preview-roster-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 8px; border-bottom: 1px solid var(--preview-line); background: var(--preview-paper-2); color: var(--preview-ink); font: 700 11px/1.2 var(--preview-display); }
+    .preview-roster-scroll { display: grid; align-content: start; gap: 5px; min-width: 0; min-height: 0; padding: 5px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: var(--preview-amber) var(--preview-paper-2); }
+    html[data-dokidoki-layout="workbench"] .preview-roster-scroll > .msl { position: relative !important; display: grid !important; grid-template-columns: 58px minmax(105px, 1fr) 58px 76px !important; grid-template-rows: 23px 19px 18px 18px !important; grid-template-areas: "portrait name name pl" "portrait race record record" "portrait morale morale gains" "portrait hunger hunger gifts" !important; align-items: center !important; gap: 1px 6px !important; width: 100% !important; max-width: 100% !important; min-width: 0 !important; min-height: 86px !important; height: 86px !important; margin: 0 !important; padding: 4px 7px !important; overflow: hidden !important; border: 1px solid var(--preview-line) !important; border-left: 3px solid transparent !important; border-radius: 5px !important; background: var(--preview-paper-3) !important; color: var(--preview-ink) !important; box-shadow: 0 1px 4px rgba(63,48,43,.08) !important; cursor: pointer; transition: border-color .16s ease, background .16s ease; }
+    html[data-dokidoki-layout="workbench"] .preview-roster-scroll > .msl:hover { border-left-color: var(--preview-amber) !important; background: #fffdf7 !important; }
+    html[data-dokidoki-layout="workbench"] .preview-roster-scroll > .msl[aria-selected="true"] { border-color: var(--preview-brass) !important; border-left-width: 4px !important; background: #f4e5c7 !important; box-shadow: inset 0 0 0 1px rgba(178,122,40,.22) !important; }
+    html[data-dokidoki-layout="workbench"] .preview-roster-scroll > .msl > div { position: relative !important; inset: auto !important; width: auto !important; min-width: 0 !important; height: auto !important; margin: 0 !important; overflow: hidden !important; color: inherit !important; line-height: 1.25 !important; text-overflow: ellipsis; white-space: nowrap; }
+    html[data-dokidoki-layout="workbench"] .preview-roster-scroll > .msl > div:nth-child(1) { grid-area: portrait; align-self: center; justify-self: center; width: 52px !important; height: 76px !important; padding: 0 !important; overflow: visible !important; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper-2); color: transparent !important; font-size: 0 !important; }
+    html[data-dokidoki-layout="workbench"] .preview-roster-scroll > .msl > div:nth-child(1)::before { content: "#" attr(data-preview-slot); position: absolute; left: -3px; top: -3px; z-index: 2; min-width: 26px; padding: 2px 3px; border: 1px solid var(--preview-brass); border-radius: 3px; background: var(--preview-paper-3); color: var(--preview-ink); font: 700 8px/1.2 var(--preview-body); text-align: center; }
+    html[data-dokidoki-layout="workbench"] .preview-roster-scroll > .msl > div:nth-child(1)::after { position: absolute !important; inset: 1px !important; display: block !important; flex: none !important; width: 48px !important; height: 72px !important; background-size: 624px 72px !important; background-position: var(--preview-portrait-x, 0) 0 !important; border-radius: 3px !important; box-shadow: none !important; }
+    html[data-dokidoki-layout="workbench"] .preview-roster-scroll > .msl > div:nth-child(2) { grid-area: name; color: var(--preview-ink) !important; font: 700 13px/1.2 var(--preview-display) !important; }
+    html[data-dokidoki-layout="workbench"] .preview-roster-scroll > .msl > div:nth-child(3) { grid-area: pl; justify-self: end; color: var(--preview-amber) !important; font-weight: 700; font-variant-numeric: tabular-nums; }
+    html[data-dokidoki-layout="workbench"] .preview-roster-scroll > .msl > div:nth-child(4) { grid-area: race; color: var(--preview-muted) !important; font-weight: 700; }
+    html[data-dokidoki-layout="workbench"] .preview-roster-scroll > .msl > div:nth-child(5) { grid-area: hunger; }
+    html[data-dokidoki-layout="workbench"] .preview-roster-scroll > .msl > div:nth-child(6) { grid-area: morale; }
+    html[data-dokidoki-layout="workbench"] .preview-roster-scroll > .msl > div:nth-child(7) { grid-area: record; display: flex; justify-content: flex-end; gap: 10px; color: var(--preview-muted) !important; }
+    html[data-dokidoki-layout="workbench"] .preview-roster-scroll > .msl > div:nth-child(8) { grid-area: gains; justify-self: end; border-left: 1px solid var(--preview-line); padding-left: 6px !important; color: var(--preview-muted) !important; }
+    html[data-dokidoki-layout="workbench"] .preview-roster-scroll > .msl > div:nth-child(9) { grid-area: gifts; justify-self: end; border-left: 1px solid var(--preview-line); padding-left: 6px !important; color: var(--preview-muted) !important; }
+    .preview-card-metric { display: inline-flex; align-items: baseline; gap: 3px; min-width: 0; color: var(--preview-muted); font-size: 9px; white-space: nowrap; }
+    .preview-card-metric > span { color: var(--preview-muted); font-weight: 700; }
+    .preview-card-metric > strong { color: var(--preview-ink); font-size: 10px; font-variant-numeric: tabular-nums; }
+    html[data-dokidoki-layout="workbench"] #slot_pane .msn { display: flex; align-items: center; justify-content: center; min-height: 17px; padding: 2px 5px; overflow: hidden; border: 1px solid var(--preview-line) !important; border-radius: 999px; background: linear-gradient(90deg, #80a477 var(--preview-fill, 76%), #e8e0d2 var(--preview-fill, 76%)) !important; color: #244f2b !important; font-size: 9px; font-variant-numeric: tabular-nums; text-align: center; }
+    html[data-dokidoki-layout="workbench"] #slot_pane .msn .preview-card-metric > span,
+    html[data-dokidoki-layout="workbench"] #slot_pane .msn .preview-card-metric > strong { color: #244f2b; }
+    html[data-dokidoki-layout="workbench"] #monster_actions { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 6px !important; width: 100% !important; height: auto !important; margin: 7px 0 0 !important; padding: 0 !important; }
+    html[data-dokidoki-layout="workbench"] #monster_actions > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 7px; width: auto !important; min-height: 58px !important; margin: 0 !important; padding: 7px 9px !important; border: 1px solid var(--preview-line) !important; border-radius: 5px !important; background: var(--preview-paper) !important; color: var(--preview-ink) !important; text-align: left; }
+    html[data-dokidoki-layout="workbench"] #monster_actions p { grid-column: 1; margin: 2px 0 0; color: var(--preview-muted); font-size: 10px; }
+    html[data-dokidoki-layout="workbench"] #monster_actions button { grid-column: 2; grid-row: 1 / span 2; min-width: 92px; min-height: var(--preview-touch); border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper-2); color: var(--preview-muted); }
+
+    .preview-page-header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 9px; padding: 12px 14px; border-left: 4px solid var(--preview-brass); }
+    .preview-page-nav { display: flex; flex-wrap: wrap; gap: 5px; }
+    .preview-page-nav a { display: grid; place-items: center; min-height: var(--preview-touch); padding: 7px 10px; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper-2); color: var(--preview-ink); font-weight: 700; text-decoration: none; }
+    #dokidoki-preview-profile-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); align-items: start; gap: 10px; width: min(1240px, 100%); margin-inline: auto; }
+    .preview-profile-art { position: sticky; top: 58px; overflow: hidden; }
+    .preview-profile-art img { display: block; width: 100%; aspect-ratio: 2 / 3; object-fit: cover; background: var(--preview-paper-2); }
+    .preview-profile-summary { padding: 10px; }
+    .preview-profile-summary h2 { margin: 0; color: var(--preview-ink); font: 700 20px/1.15 var(--preview-display); }
+    .preview-profile-main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--preview-gap); min-width: 0; }
+    .preview-profile-span { grid-column: 1 / -1; }
+    .preview-combat-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, .8fr); gap: 8px; }
+    .preview-combat-left { display: grid; gap: 8px; min-width: 0; }
+    .preview-stat-group { min-width: 0; padding: 8px; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper-2); }
+    .preview-stat-group h3 { margin: 0 0 7px; color: var(--preview-ink); font: 700 12px/1.2 var(--preview-display); }
+    .preview-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+    .preview-stat { padding: 8px; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper-3); }
+    .preview-stat span { display: block; color: var(--preview-muted); font-size: 10px; }
+    .preview-stat strong { display: block; margin-top: 2px; color: var(--preview-ink); font: 700 17px/1 var(--preview-display); font-variant-numeric: tabular-nums; }
+    .preview-data-list { display: grid; gap: 3px; margin: 0; }
+    .preview-data-row { display: grid; grid-template-columns: minmax(90px, 1fr) auto auto; gap: 8px; padding: 6px 8px; border-bottom: 1px solid rgba(116,102,93,.2); }
+    .preview-data-row:last-child { border-bottom: 0; }
+    .preview-data-row span { color: var(--preview-muted); }
+    .preview-data-row strong { color: var(--preview-ink); }
+    .preview-chaos-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; }
+    .preview-upgrade-item { display: grid; grid-template-rows: auto auto 1fr; gap: 3px; min-width: 0; padding: 7px; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper-3); }
+    .preview-upgrade-item span { overflow-wrap: anywhere; color: var(--preview-ink); font-size: 10px; font-weight: 700; }
+    .preview-upgrade-item strong { color: var(--preview-amber); font-variant-numeric: tabular-nums; }
+    .preview-upgrade-item small { color: var(--preview-muted); font-size: 9px; line-height: 1.35; }
+    [data-preview-action]:disabled { min-height: var(--preview-touch); border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper-2); color: var(--preview-muted); cursor: not-allowed; opacity: .68; }
+    .preview-care-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+    .preview-danger-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--preview-danger); }
+    .preview-danger-actions strong { display: block; color: var(--preview-danger); }
+    .preview-danger-actions span { display: block; margin-top: 2px; color: var(--preview-muted); font-size: 9px; }
+    .preview-danger-actions button { min-width: 132px; border-color: rgba(142,38,54,.55) !important; color: var(--preview-danger) !important; }
+    .preview-skill-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    .preview-skill-row { display: grid; grid-template-columns: minmax(140px, 1fr) auto; grid-template-areas: "skill power" "attack cost" "damage cost"; align-items: center; gap: 4px 8px; min-height: 92px; padding: 8px 9px; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper-3); }
+    .preview-skill-row > :nth-child(1) { grid-area: skill; }
+    .preview-skill-row > :nth-child(2) { grid-area: attack; color: var(--preview-muted); }
+    .preview-skill-row > :nth-child(3) { grid-area: damage; color: var(--preview-muted); }
+    .preview-skill-row > :nth-child(4) { grid-area: power; color: var(--preview-amber); font: 700 18px/1 var(--preview-display); }
+    .preview-skill-row > :nth-child(5) { grid-area: cost; align-self: end; color: var(--preview-muted); }
+    .preview-skill-input { width: 100%; min-height: 38px; padding: 5px 7px; border: 1px solid var(--preview-line); border-radius: 4px; background: #fffdf7; color: var(--preview-ink); }
+
+    #dokidoki-preview-manager-layout, .dokidoki-preview-manager-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); align-items: start; gap: var(--preview-gap); }
+    .preview-hvmm-header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; }
+    .hvmepp-lang-switch { display: flex; gap: 5px; }
+    .hvmepp-lang-switch button { min-height: var(--preview-touch); padding: 6px 10px; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper-3); color: var(--preview-ink); }
+    [data-preview-hvmm-section="selection"] { position: sticky; top: 76px; grid-column: 1; min-width: 0; }
+    [data-preview-hvmm-section="workspace"] { grid-column: 2; display: grid; gap: var(--preview-gap); min-width: 0; }
+    .hvmepp-card { overflow: hidden; border: 1px solid var(--preview-line); border-radius: var(--preview-radius); background: var(--preview-paper); box-shadow: 0 3px 10px var(--preview-shadow); }
+    .hvmepp-section-heading { display: flex; align-items: center; min-height: var(--preview-touch); padding: 8px 10px; border-bottom: 1px solid var(--preview-line); background: var(--preview-paper-2); color: var(--preview-ink); font: 700 14px/1.2 var(--preview-display); }
+    .hvmepp-section-body { padding: 8px; }
+    .hvmepp-selection-meta { display: grid; gap: 3px; margin-bottom: 6px; color: var(--preview-muted); }
+    .hvmepp-monster-list { display: grid; gap: 4px; max-height: 520px; overflow-y: auto; padding: 5px; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper-2); }
+    .hvmepp-monster-option { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; align-items: center; gap: 6px; min-height: var(--preview-touch); padding: 5px 7px; overflow: hidden; border: 1px solid transparent; border-radius: 4px; background: var(--preview-paper-3); color: var(--preview-ink); }
+    .hvmepp-monster-option.hvmepp-selected, .hvmepp-monster-option[aria-selected="true"] { border-color: var(--preview-brass); background: #f4e5c7; box-shadow: inset 3px 0 0 var(--preview-brass); }
+    .hvmepp-controls, .hvmepp-top-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 6px; padding: 8px; }
+    .hvmepp-controls label { display: grid; gap: 3px; color: var(--preview-muted); font-size: 10px; font-weight: 700; }
+    .hvmepp-controls input, .hvmepp-controls select, .hvmepp-controls textarea { min-height: var(--preview-touch); padding: 6px 7px; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper-3); color: var(--preview-ink); }
+    .hvmepp-top-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--preview-line); background: var(--preview-paper-2); }
+    .hvmepp-top-actions button { border-color: var(--preview-brass); background: #ead4a8; color: var(--preview-ink); }
+    .hvmepp-table-wrap { max-width: 100%; overflow-x: auto; }
+    .hvmepp-table { width: 100%; min-width: 620px; border-collapse: collapse; }
+    .hvmepp-table th, .hvmepp-table td { padding: 7px 8px; border-bottom: 1px solid var(--preview-line); text-align: left; }
+    .hvmepp-table th { background: var(--preview-paper-2); color: var(--preview-ink); font-size: 11px; }
+    .hvmepp-table td { background: var(--preview-paper-3); }
+    .hvmepp-log-output { max-height: 180px; margin: 0; padding: 9px; overflow-y: auto; background: #342b27; color: #f5ead7; font: 11px/1.55 Consolas, monospace; white-space: pre-wrap; }
+    .hvmepp-rename-editor { width: 100%; min-height: 240px; resize: vertical; }
+    .preview-manager-selection { padding: 0; }
+    .preview-manager-selection > summary, .preview-collapsible-card > summary { list-style-position: inside; cursor: pointer; }
+    .preview-manager-selection:not([open]) { align-self: start; }
+    .preview-manager-selection:not([open]) > summary { min-height: 120px; justify-content: center; writing-mode: vertical-rl; }
+    #dokidoki-preview-manager-layout:has(.preview-manager-selection:not([open])) { grid-template-columns: 52px minmax(0, 1fr); }
+    .preview-planner-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 8px 8px; }
+    .preview-draft-message { flex: 1 1 260px; margin: 0; color: var(--preview-muted); }
+    .preview-warning { margin: 0 8px 8px; padding: 8px; border: 1px solid var(--preview-danger); border-radius: 4px; background: rgba(142,38,54,.08); color: var(--preview-danger); }
+    .preview-warning[hidden] { display: none; }
+    .preview-warning-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+    [data-preview-local-action] { min-height: var(--preview-touch); padding: 6px 9px; border: 1px solid var(--preview-brass); border-radius: 4px; background: #ead4a8; color: var(--preview-ink); font-weight: 700; cursor: pointer; }
+    [data-preview-local-action].is-secondary { border-color: var(--preview-line); background: var(--preview-paper-3); }
+    .preview-upgrade-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 8px; border-bottom: 1px solid var(--preview-line); }
+    .preview-upgrade-toolbar p { flex: 1 1 280px; margin: 0; color: var(--preview-muted); }
+    .preview-upgrade-matrix-wrap { width: 100%; max-height: 510px; overflow: auto; overscroll-behavior: contain; border-top: 1px solid var(--preview-line); scrollbar-color: var(--preview-amber) var(--preview-paper-2); }
+    .preview-upgrade-matrix { width: 100%; min-width: 1880px; border-collapse: separate; border-spacing: 0; table-layout: fixed; font-size: 10px; }
+    .preview-upgrade-matrix th, .preview-upgrade-matrix td { min-width: 58px; height: 48px; padding: 4px; border-right: 1px solid var(--preview-line); border-bottom: 1px solid var(--preview-line); background: var(--preview-paper-3); text-align: center; }
+    .preview-upgrade-matrix thead th { position: sticky; top: 0; z-index: 6; background: var(--preview-paper-2); color: var(--preview-ink); }
+    .preview-upgrade-matrix thead tr:nth-child(2) th { top: 48px; }
+    .preview-upgrade-matrix .preview-group-heading { min-width: 0; background: #eadfc9; }
+    .preview-group-heading > span { display: inline-block; margin-right: 6px; }
+    .preview-group-actions { display: inline-flex; gap: 3px; }
+    .preview-group-actions button, .preview-row-reset { min-width: 32px; min-height: 32px; padding: 2px 5px; border: 1px solid var(--preview-line); border-radius: 3px; background: var(--preview-paper-3); color: var(--preview-ink); cursor: pointer; }
+    .preview-upgrade-matrix .preview-id-cell { position: sticky; z-index: 4; background: var(--preview-paper); }
+    .preview-upgrade-matrix thead .preview-id-cell { z-index: 8; background: var(--preview-paper-2); }
+    .preview-upgrade-matrix .preview-id-slot { left: 0; width: 48px; min-width: 48px; }
+    .preview-upgrade-matrix .preview-id-name { left: 48px; width: 140px; min-width: 140px; text-align: left; }
+    .preview-upgrade-matrix .preview-id-current { left: 188px; width: 68px; min-width: 68px; }
+    .preview-upgrade-matrix .preview-id-projected { left: 256px; width: 84px; min-width: 84px; }
+    .preview-upgrade-matrix .preview-id-reset { left: 340px; width: 58px; min-width: 58px; box-shadow: 3px 0 5px rgba(63,48,43,.12); }
+    .preview-upgrade-matrix tbody tr.is-custom td { background-color: #fff5df; }
+    .preview-upgrade-matrix tbody tr.has-warning .preview-id-projected { color: var(--preview-danger); font-weight: 700; }
+    .preview-level-editor { display: grid; grid-template-columns: auto 46px; align-items: center; gap: 3px; min-width: 0; }
+    .preview-level-editor small { color: var(--preview-muted); font-variant-numeric: tabular-nums; }
+    .preview-level-editor input { width: 46px; min-height: 34px; padding: 3px; border: 1px solid var(--preview-line); border-radius: 3px; background: #fffdf7; color: var(--preview-ink); text-align: right; font-variant-numeric: tabular-nums; }
+    [data-upgrade-slot][aria-invalid="true"] { border-color: var(--preview-danger) !important; background: #fff1f3 !important; outline: 2px solid rgba(142,38,54,.16); }
+    #dokidoki-preview-upgrade-cards { display: none; gap: 7px; max-height: 620px; padding: 7px; overflow-y: auto; }
+    .preview-upgrade-card { border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper-3); }
+    .preview-upgrade-card > summary { display: grid; grid-template-columns: auto minmax(0,1fr) auto; gap: 7px; min-height: var(--preview-touch); padding: 8px; color: var(--preview-ink); font-weight: 700; cursor: pointer; }
+    .preview-upgrade-card.has-warning > summary { color: var(--preview-danger); }
+    .preview-upgrade-card-body { display: grid; gap: 7px; padding: 7px; border-top: 1px solid var(--preview-line); }
+    .preview-upgrade-card-group { padding: 7px; border: 1px solid var(--preview-line); border-radius: 4px; background: var(--preview-paper); }
+    .preview-upgrade-card-group h4 { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 5px; margin: 0 0 6px; }
+    .preview-upgrade-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 5px; }
+    .preview-upgrade-card-field { display: grid; gap: 3px; min-width: 0; color: var(--preview-muted); font-size: 9px; }
+    .preview-upgrade-card-field input { width: 100%; min-height: 36px; padding: 4px; border: 1px solid var(--preview-line); border-radius: 3px; background: #fffdf7; color: var(--preview-ink); text-align: right; }
+    .preview-resource-summary { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 6px; margin-bottom: 7px; }
+    .preview-resource-summary .preview-metric.has-shortage { border-color: var(--preview-danger); background: rgba(142,38,54,.08); }
+    .preview-resource-table .has-shortage td { color: var(--preview-danger); font-weight: 700; }
+    .preview-all-resources { margin-top: 6px; border-top: 1px solid var(--preview-line); }
+    .preview-all-resources > summary { min-height: 40px; padding: 7px; color: var(--preview-amber); font-weight: 700; cursor: pointer; }
+    .preview-confirm-dialog { width: min(680px, calc(100vw - 24px)); max-height: min(80vh, 680px); padding: 0; border: 1px solid var(--preview-brass); border-radius: 6px; background: var(--preview-paper); color: var(--preview-ink); box-shadow: 0 18px 56px rgba(40,29,24,.35); }
+    .preview-confirm-dialog::backdrop { background: rgba(32,24,21,.58); }
+    .preview-confirm-dialog > div { display: grid; gap: 10px; padding: 16px; overflow: auto; }
+    .preview-confirm-dialog h2, .preview-confirm-dialog p { margin: 0; }
+    .preview-confirm-list { max-height: 280px; padding: 8px 8px 8px 26px; overflow: auto; border: 1px solid var(--preview-line); background: var(--preview-paper-3); }
+    .preview-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .preview-collapsible-card { padding: 0; }
+    .preview-collapsible-card > summary { justify-content: space-between; }
+    .preview-collapsible-card > summary::after { content: "+"; color: var(--preview-amber); }
+    .preview-collapsible-card[open] > summary::after { content: "−"; }
+    .dokidoki-preview-images-off img, .dokidoki-preview-images-off .preview-roster-scroll > .msl > div:nth-child(1)::after { visibility: hidden !important; }
+
+    #dokidoki-preview-stage[data-preview-width="1280"] #monster_outer,
+    #dokidoki-preview-stage[data-preview-width="1024"] #monster_outer { grid-template-columns: 200px minmax(0, 1fr); }
+    #dokidoki-preview-stage[data-preview-width="1024"] #dokidoki-preview-profile-layout,
+    #dokidoki-preview-stage[data-preview-width="1024"] .dokidoki-preview-profile-layout { grid-template-columns: 240px minmax(0, 1fr); }
+    #dokidoki-preview-stage[data-preview-width="1024"] .preview-chaos-grid,
+    #dokidoki-preview-stage[data-preview-width="900"] .preview-chaos-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    #dokidoki-preview-stage[data-preview-width="900"] #monster_outer,
+    #dokidoki-preview-stage[data-preview-width="640"] #monster_outer,
+    #dokidoki-preview-stage[data-preview-width="375"] #monster_outer { grid-template-columns: 1fr !important; grid-template-areas: "rail" "shell" !important; }
+    #dokidoki-preview-stage[data-preview-width="900"] #dokidoki-preview-lab-nav,
+    #dokidoki-preview-stage[data-preview-width="640"] #dokidoki-preview-lab-nav,
+    #dokidoki-preview-stage[data-preview-width="375"] #dokidoki-preview-lab-nav { position: static; }
+    #dokidoki-preview-stage[data-preview-width="900"][data-preview-filter-collapsed="true"] #dokidoki-preview-filter-toggle,
+    #dokidoki-preview-stage[data-preview-width="640"][data-preview-filter-collapsed="true"] #dokidoki-preview-filter-toggle,
+    #dokidoki-preview-stage[data-preview-width="375"][data-preview-filter-collapsed="true"] #dokidoki-preview-filter-toggle { min-height: var(--preview-touch); writing-mode: horizontal-tb; }
+    #dokidoki-preview-stage[data-preview-width="900"] #dokidoki-preview-lab-nav .preview-section-body { display: grid; grid-template-columns: 190px minmax(0, 1fr) minmax(180px, .7fr); gap: 8px; }
+    #dokidoki-preview-stage[data-preview-width="900"] #dokidoki-preview-lab-nav .preview-filter,
+    #dokidoki-preview-stage[data-preview-width="900"] #dokidoki-preview-lab-nav .preview-rail-links { margin-top: 0; }
+    #dokidoki-preview-stage[data-preview-width="900"] #dokidoki-preview-profile-layout { grid-template-columns: 1fr; }
+    #dokidoki-preview-stage[data-preview-width="900"] .preview-profile-art { position: static; width: min(240px, 100%); justify-self: center; }
+    #dokidoki-preview-stage[data-preview-width="900"] .preview-profile-main { grid-template-columns: 1fr; }
+    #dokidoki-preview-stage[data-preview-width="900"] .preview-profile-span { grid-column: 1; }
+    #dokidoki-preview-stage[data-preview-width="900"] .preview-combat-layout { grid-template-columns: 1fr; }
+    #dokidoki-preview-stage[data-preview-width="900"] #dokidoki-preview-manager-layout,
+    #dokidoki-preview-stage[data-preview-width="900"] .dokidoki-preview-manager-layout { grid-template-columns: 1fr; }
+    #dokidoki-preview-stage[data-preview-width="900"] [data-preview-hvmm-section="selection"],
+    #dokidoki-preview-stage[data-preview-width="900"] [data-preview-hvmm-section="workspace"] { position: static; grid-column: 1; }
+    #dokidoki-preview-stage[data-preview-width="900"] .preview-manager-selection:not([open]) > summary { min-height: var(--preview-touch); justify-content: flex-start; writing-mode: horizontal-tb; }
+    #dokidoki-preview-stage[data-preview-width="900"] #dokidoki-preview-manager-layout:has(.preview-manager-selection:not([open])) { grid-template-columns: 1fr; }
+    #dokidoki-preview-stage[data-preview-width="900"] .hvmepp-monster-list { max-height: 220px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #dokidoki-preview-stage[data-preview-width="900"] .preview-upgrade-matrix-wrap { display: none; }
+    #dokidoki-preview-stage[data-preview-width="900"] #dokidoki-preview-upgrade-cards { display: grid; }
+    #dokidoki-preview-stage[data-preview-width="640"] .preview-workspace-stats,
+    #dokidoki-preview-stage[data-preview-width="375"] .preview-workspace-stats { justify-content: flex-start; }
+    #dokidoki-preview-stage[data-preview-width="640"] #dokidoki-preview-lab-nav .preview-section-body,
+    #dokidoki-preview-stage[data-preview-width="375"] #dokidoki-preview-lab-nav .preview-section-body { display: grid; grid-template-columns: 1fr; }
+    #dokidoki-preview-stage[data-preview-width="640"] .preview-roster-scroll > .msl { grid-template-columns: 58px minmax(0, 1fr) 58px 72px !important; grid-template-rows: repeat(4, 22px) !important; min-height: 96px !important; height: 96px !important; }
+    #dokidoki-preview-stage[data-preview-width="640"] #monster_actions,
+    #dokidoki-preview-stage[data-preview-width="375"] #monster_actions { grid-template-columns: 1fr !important; }
+    #dokidoki-preview-stage[data-preview-width="640"] #dokidoki-preview-profile-layout,
+    #dokidoki-preview-stage[data-preview-width="375"] #dokidoki-preview-profile-layout { grid-template-columns: 1fr; }
+    #dokidoki-preview-stage[data-preview-width="640"] .preview-profile-art,
+    #dokidoki-preview-stage[data-preview-width="375"] .preview-profile-art { position: static; width: min(240px, 100%); justify-self: center; }
+    #dokidoki-preview-stage[data-preview-width="640"] .preview-profile-main,
+    #dokidoki-preview-stage[data-preview-width="375"] .preview-profile-main,
+    #dokidoki-preview-stage[data-preview-width="640"] .preview-skill-list,
+    #dokidoki-preview-stage[data-preview-width="375"] .preview-skill-list { grid-template-columns: 1fr; }
+    #dokidoki-preview-stage[data-preview-width="640"] .preview-combat-layout,
+    #dokidoki-preview-stage[data-preview-width="375"] .preview-combat-layout { grid-template-columns: 1fr; }
+    #dokidoki-preview-stage[data-preview-width="640"] .preview-chaos-grid,
+    #dokidoki-preview-stage[data-preview-width="375"] .preview-chaos-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    #dokidoki-preview-stage[data-preview-width="375"] #dokidoki-toolbar .hvut-ml-side { grid-template-columns: 1fr 1fr !important; }
+    #dokidoki-preview-stage[data-preview-width="375"] .preview-roster-scroll > .msl { grid-template-columns: 54px minmax(0, 1fr) 66px !important; grid-template-rows: repeat(6, 22px) !important; grid-template-areas: "portrait name pl" "portrait race race" "portrait record record" "portrait gains gifts" "portrait morale morale" "portrait hunger hunger" !important; min-height: 140px !important; height: 140px !important; }
+    #dokidoki-preview-stage[data-preview-width="375"] .preview-care-actions,
+    #dokidoki-preview-stage[data-preview-width="375"] .preview-danger-actions { grid-template-columns: 1fr; }
+    #dokidoki-preview-stage[data-preview-width="375"] .preview-danger-actions button { width: 100%; }
+    #dokidoki-preview-stage[data-preview-width="375"] .hvmepp-monster-list { grid-template-columns: 1fr; }
+    #dokidoki-preview-stage[data-preview-width="375"] .hvmepp-top-actions { grid-template-columns: 1fr 1fr; }
+    #dokidoki-preview-stage[data-preview-width="640"] .preview-resource-summary,
+    #dokidoki-preview-stage[data-preview-width="375"] .preview-resource-summary { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    #dokidoki-preview-stage[data-preview-width="640"] .preview-upgrade-card-grid,
+    #dokidoki-preview-stage[data-preview-width="375"] .preview-upgrade-card-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    @media (max-width: 980px) {
+      #dokidoki-preview-command-bar { position: relative; grid-template-columns: 1fr; }
+      #dokidoki-preview-command-bar #dokidoki-preview-nav, #dokidoki-preview-command-bar #dokidoki-preview-controls { justify-content: flex-start; }
+      #dokidoki-preview-main { padding: 7px; }
+    }
+    @media (max-width: 900px) {
+      .preview-combat-layout { grid-template-columns: 1fr; }
+      .preview-chaos-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+      .preview-chaos-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 1179px) {
+      html[data-dokidoki-layout="workbench"] #slot_pane { grid-template-columns: 1fr !important; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <a id="dokidoki-preview-skip" href="#dokidoki-preview-main" data-en="Skip to workbench" data-zh="跳到实验室工作区">跳到实验室工作区</a>
+  <header id="dokidoki-preview-command-bar">
+    <nav id="dokidoki-preview-nav" aria-label="Preview pages">
+      <a href="#list" data-en="Roster" data-zh="怪物名册">怪物名册</a><a href="#planner" data-en="PL Planner" data-zh="PL计划器">PL计划器</a><a href="#rename" data-en="Rename" data-zh="怪物重命名">怪物重命名</a>
+    </nav>
+    <div id="dokidoki-preview-controls" aria-label="Preview controls">
+      <span class="preview-offline-badge" data-en="Offline preview" data-zh="离线预览">离线预览</span><button type="button" data-preview-language aria-label="Switch language">中 / EN</button><button type="button" data-preview-width="1536">1536</button><button type="button" data-preview-width="1280">1280</button><button type="button" data-preview-width="1024">1024</button><button type="button" data-preview-width="900">900</button><button type="button" data-preview-width="640">640</button><button type="button" data-preview-width="375">375</button><button type="button" data-preview-images aria-pressed="false" data-en="Hide images" data-zh="隐藏图片">隐藏图片</button>
+    </div>
+  </header>
+
+  <main id="dokidoki-preview-main">
+    <div id="dokidoki-preview-stage" data-preview-width="1536" data-preview-filter-collapsed="false">
+      <section data-preview-view="list">
+        <div id="mainpane"><div id="monster_outer">
+          <aside id="dokidoki-preview-lab-nav" class="preview-surface" aria-label="Roster filters">
+            <button id="dokidoki-preview-filter-toggle" type="button" aria-expanded="true" data-expanded-en="Collapse filters" data-expanded-zh="收起筛选" data-collapsed-en="Expand filters" data-collapsed-zh="展开筛选">收起筛选</button>
+            <h2 class="preview-section-title"><span data-en="Lab index" data-zh="实验室索引">实验室索引</span><span class="preview-chip" data-preview-result-count>200 / 200</span></h2>
+            <div class="preview-section-body">
+              <div class="preview-metrics"><div class="preview-metric"><strong>200</strong><span data-en="occupied slots" data-zh="已使用槽位">已使用槽位</span></div><div class="preview-metric"><strong>750</strong><span data-en="common PL" data-zh="常见PL">常见PL</span></div><div class="preview-metric"><strong>13</strong><span data-en="monster classes" data-zh="怪物种族">怪物种族</span></div><div class="preview-metric"><strong>4</strong><span data-en="need attention" data-zh="需要关注">需要关注</span></div></div>
+              <div class="preview-filter"><label for="dokidoki-preview-filter-search" data-en="Search roster" data-zh="搜索名册">搜索名册</label><input id="dokidoki-preview-filter-search" type="search" autocomplete="off" placeholder="编号 / 名称" data-placeholder-en="Slot / name" data-placeholder-zh="编号 / 名称"><label for="dokidoki-preview-filter-race" data-en="Monster class" data-zh="怪物种族">怪物种族</label><select id="dokidoki-preview-filter-race"><option value="" data-en="All classes" data-zh="全部种族">全部种族</option></select></div>
+              <nav class="preview-rail-links" aria-label="Manager shortcuts"><a href="#planner" data-en="Open PL Planner" data-zh="打开PL计划器">打开PL计划器</a><a href="#rename" data-en="Open Monster Rename" data-zh="打开怪物重命名">打开怪物重命名</a></nav>
+              <p class="preview-rail-note" data-en="Filters only change visibility; HV Utils remains the sorting authority." data-zh="筛选只改变可见性；HV Utils仍是排序权威。">筛选只改变可见性；HV Utils仍是排序权威。</p>
+            </div>
+          </aside>
+
+          <details id="dokidoki-preview-tool-drawer" open>
+            <summary><span data-en="Lab tools" data-zh="实验室工具">实验室工具</span><span class="preview-chip">9</span></summary>
+            <div class="hvut-ml-side" aria-label="Monster Lab tools">
+              <span class="preview-tool-group-label" data-en="Utilities" data-zh="常用工具">常用工具</span>
+              <input type="button" disabled data-preview-action data-dokidoki-group="utility" value="Gift Summary" data-en="Gift Summary" data-zh="礼物汇总" data-short-en="Gift Summary" data-short-zh="礼物汇总">
+              <input type="button" disabled data-preview-action data-dokidoki-group="utility" value="Monster Lab Log" data-en="Monster Lab Log" data-zh="实验室日志" data-short-en="Lab Log" data-short-zh="实验室日志">
+              <input type="button" disabled data-preview-action data-dokidoki-group="utility" value="Reset Log" data-en="Reset Log" data-zh="重置日志" data-short-en="Reset Log" data-short-zh="重置日志">
+              <span class="preview-tool-group-label" data-en="Data" data-zh="数据工具">数据工具</span>
+              <input type="button" disabled data-preview-action data-dokidoki-group="data" value="Item Prices" data-en="Item Prices" data-zh="物品价格" data-short-en="Prices" data-short-zh="物品价格">
+              <input type="button" disabled data-preview-action data-dokidoki-group="data" value="Update Wins/Kills" data-en="Update Wins/Kills" data-zh="更新胜场/击杀" data-short-en="Update W/K" data-short-zh="更新胜/杀">
+              <span class="preview-tool-group-label" data-en="Monster tools" data-zh="怪物工具">怪物工具</span>
+              <input id="hvut-ml-up-button" type="button" disabled data-preview-action data-dokidoki-group="monster" value="Monster Upgrader" data-en="Monster Upgrader" data-zh="怪物升级" data-short-en="Upgrader" data-short-zh="怪物升级">
+              <input type="button" disabled data-preview-action data-dokidoki-group="monster" value="Power Level Calculator" data-en="Power Level Calculator" data-zh="PL计算器" data-short-en="PL Calculator" data-short-zh="PL计算器">
+              <span class="preview-tool-group-label" data-en="Manager" data-zh="管理器">管理器</span>
+              <input id="hvmepp-planner-entry" class="hvmepp-entry" type="button" disabled data-preview-action data-dokidoki-group="manager" value="PL Planner" data-en="PL Planner" data-zh="PL计划器" data-short-en="PL Planner" data-short-zh="PL计划器">
+              <input id="hvmepp-rename-entry" class="hvmepp-entry" type="button" disabled data-preview-action data-dokidoki-group="manager" value="Monster Rename" data-en="Monster Rename" data-zh="怪物重命名" data-short-en="Rename" data-short-zh="怪物重命名">
+            </div>
+          </details>
+          <div id="monster_list">
+            <div class="hvut-ml-sort" aria-label="Sort preview"><span class="hvut-ml-sort-current" role="button" tabindex="0" data-sort="slot" data-en="Slot" data-zh="编号">编号</span><span role="button" tabindex="0" data-sort="name" data-en="Name" data-zh="名称">名称</span><span role="button" tabindex="0" data-sort="pl">PL</span><span role="button" tabindex="0" data-sort="race" data-en="Class" data-zh="种族">种族</span><span role="button" tabindex="0" data-sort="record" data-en="Wins" data-zh="胜场">胜场</span><span role="button" tabindex="0" data-sort="gifts" data-en="Gifts" data-zh="礼物">礼物</span></div>
+            <div id="slot_pane" data-preview-roster-mode="dual">
+              <section id="dokidoki-preview-roster-left" class="preview-roster-pane"><header class="preview-roster-heading"><span data-en="First half" data-zh="前半名册">前半名册</span><span class="preview-chip" data-preview-pane-count="left">100</span></header><div id="dokidoki-preview-roster-left-scroll" class="preview-roster-scroll" role="listbox" aria-label="Synthetic monster roster, first half" aria-multiselectable="false"></div></section>
+              <section id="dokidoki-preview-roster-right" class="preview-roster-pane"><header class="preview-roster-heading"><span data-en="Second half" data-zh="后半名册">后半名册</span><span class="preview-chip" data-preview-pane-count="right">100</span></header><div id="dokidoki-preview-roster-right-scroll" class="preview-roster-scroll" role="listbox" aria-label="Synthetic monster roster, second half" aria-multiselectable="false"></div></section>
+            </div>
+          </div>
+          <div id="monster_actions">
+            <div><div><strong data-en="Feed all monsters" data-zh="喂养全部怪物">喂养全部怪物</strong><p data-en="Requires 36 Monster Edibles" data-zh="需要36个怪物食品">需要36个怪物食品</p></div><button type="button" disabled data-preview-action data-en="Preview only" data-zh="仅供预览">仅供预览</button></div>
+            <div><div><strong data-en="Unlock monster slot" data-zh="解锁怪物槽">解锁怪物槽</strong><p data-en="Cost: 253 Chaos Tokens" data-zh="消耗：253混沌令牌">消耗：253混沌令牌</p></div><button type="button" disabled data-preview-action data-en="Preview only" data-zh="仅供预览">仅供预览</button></div>
+            <div><div><strong data-en="Morale all monsters" data-zh="安抚全部怪物">安抚全部怪物</strong><p data-en="Requires 2 Happy Pills" data-zh="需要2个快乐药丸">需要2个快乐药丸</p></div><button type="button" disabled data-preview-action data-en="Preview only" data-zh="仅供预览">仅供预览</button></div>
+          </div>
+        </div></div>
+      </section>
+
+      <section data-preview-view="monster" hidden>
+        <header class="preview-page-header preview-surface"><div><p class="preview-kicker" data-en="Monster dossier" data-zh="怪物档案">怪物档案</p><h1 class="preview-title"><span data-profile-name>Asteria</span> · PL <span data-profile-pl>750</span></h1></div><nav class="preview-page-nav"><a href="#list" data-en="Back to roster" data-zh="返回名册">返回名册</a></nav></header>
+        <article id="dokidoki-preview-profile-layout">
+          <aside class="preview-profile-art preview-surface"><img data-profile-portrait src="./resource/dokidoki/dist/detail/arthropod.webp" alt="Asteria"><div class="preview-profile-summary"><p class="preview-kicker"><span data-profile-race>节肢动物</span></p><h2 data-profile-name>Asteria</h2><div class="preview-workspace-stats"><span class="preview-chip">#<span data-profile-slot>1</span></span><span class="preview-chip">PL <span data-profile-pl>750</span></span></div></div></aside>
+          <main class="preview-profile-main">
+            <section class="preview-surface"><h2 class="preview-section-title"><span data-en="Condition and record" data-zh="状态与记录">状态与记录</span><span class="preview-chip is-good" data-en="Healthy" data-zh="状态良好">状态良好</span></h2><div class="preview-section-body preview-data-list"><div class="preview-data-row"><span data-en="Morale" data-zh="情绪">情绪</span><strong data-profile-morale>22,200</strong><em></em></div><div class="preview-data-row"><span data-en="Hunger" data-zh="饥饿">饥饿</span><strong data-profile-hunger>19,200</strong><em></em></div><div class="preview-data-row"><span data-en="Wins" data-zh="胜场">胜场</span><strong data-profile-wins>1 / 1</strong><em></em></div><div class="preview-data-row"><span data-en="Gifts" data-zh="礼物">礼物</span><strong data-profile-gifts>14</strong><em></em></div></div></section>
+            <section id="dokidoki-preview-care-management" class="preview-surface"><h2 class="preview-section-title"><span data-en="Care and management" data-zh="照料与管理">照料与管理</span></h2><div class="preview-section-body"><div class="preview-care-actions"><button disabled data-preview-action data-en="Feed — disabled" data-zh="喂养 — 已禁用">喂养 — 已禁用</button><button disabled data-preview-action data-en="Morale — disabled" data-zh="安抚 — 已禁用">安抚 — 已禁用</button><button disabled data-preview-action data-en="Rename — disabled" data-zh="重命名 — 已禁用">重命名 — 已禁用</button></div><div class="preview-danger-actions"><div><strong data-en="Danger zone" data-zh="危险操作">危险操作</strong><span data-en="Releasing a monster cannot be undone." data-zh="释放怪物后无法撤销。">释放怪物后无法撤销。</span></div><button disabled data-preview-action data-en="Release monster — disabled" data-zh="释放怪物 — 已禁用">释放怪物 — 已禁用</button></div></div></section>
+            <section id="dokidoki-preview-combat-attributes" class="preview-surface preview-profile-span"><h2 class="preview-section-title"><span data-en="Combat attributes" data-zh="战斗属性">战斗属性</span></h2><div class="preview-section-body preview-combat-layout"><div class="preview-combat-left"><section class="preview-stat-group" data-preview-stat-group="primary"><h3 data-en="Primary attributes" data-zh="主要属性">主要属性</h3><div class="preview-stat-grid"><div class="preview-stat"><span>STR</span><strong>731</strong></div><div class="preview-stat"><span>DEX</span><strong>694</strong></div><div class="preview-stat"><span>AGI</span><strong>702</strong></div><div class="preview-stat"><span>END</span><strong>744</strong></div><div class="preview-stat"><span>INT</span><strong>320</strong></div><div class="preview-stat"><span>WIS</span><strong>335</strong></div></div></section><section class="preview-stat-group" data-preview-stat-group="elemental"><h3 data-en="Elemental mitigations" data-zh="元素减伤">元素减伤</h3><div class="preview-stat-grid"><div class="preview-stat"><span>FIRE</span><strong>27</strong></div><div class="preview-stat"><span>COLD</span><strong>24</strong></div><div class="preview-stat"><span>ELEC</span><strong>29</strong></div><div class="preview-stat"><span>WIND</span><strong>26</strong></div><div class="preview-stat"><span>HOLY</span><strong>18</strong></div><div class="preview-stat"><span>DARK</span><strong>20</strong></div></div></section></div><section class="preview-stat-group" data-preview-stat-group="other"><h3 data-en="Other attributes" data-zh="其他属性">其他属性</h3><div class="preview-data-list"><div class="preview-data-row"><span data-en="Attack damage" data-zh="攻击伤害">攻击伤害</span><strong>8,914</strong><em>Slashing</em></div><div class="preview-data-row"><span data-en="Physical mitigation" data-zh="物理减伤">物理减伤</span><strong>47.2%</strong><em></em></div><div class="preview-data-row"><span data-en="Magical mitigation" data-zh="魔法减伤">魔法减伤</span><strong>36.8%</strong><em></em></div><div class="preview-data-row"><span data-en="Attack speed" data-zh="攻击速度">攻击速度</span><strong>1.12</strong><em></em></div><div class="preview-data-row"><span data-en="Evade chance" data-zh="闪避率">闪避率</span><strong>18.6%</strong><em></em></div><div class="preview-data-row"><span data-en="Resist chance" data-zh="抵抗率">抵抗率</span><strong>15.4%</strong><em></em></div></div></section></div></section>
+            <section id="dokidoki-preview-chaos-upgrades" class="preview-surface preview-profile-span"><h2 class="preview-section-title"><span data-en="Chaos upgrades" data-zh="混沌升级">混沌升级</span></h2><div class="preview-section-body preview-chaos-grid"><div class="preview-upgrade-item"><span>Scavenging</span><strong>Lv 10</strong><small data-en="Gift factor +2.5% per level" data-zh="每级礼物因子 +2.5%">每级礼物因子 +2.5%</small></div><div class="preview-upgrade-item"><span>Fortitude</span><strong>Lv 8</strong><small data-en="Health +5% per level" data-zh="每级生命值 +5%">每级生命值 +5%</small></div><div class="preview-upgrade-item"><span>Brutality</span><strong>Lv 8</strong><small data-en="Damage +2.5% per level" data-zh="每级伤害 +2.5%">每级伤害 +2.5%</small></div><div class="preview-upgrade-item"><span>Accuracy</span><strong>Lv 7</strong><small data-en="Accuracy +5% per level" data-zh="每级命中 +5%">每级命中 +5%</small></div><div class="preview-upgrade-item"><span>Precision</span><strong>Lv 6</strong><small data-en="Target evade/block −1% per level" data-zh="每级降低目标闪避／格挡 1%">每级降低目标闪避／格挡 1%</small></div><div class="preview-upgrade-item"><span>Overpower</span><strong>Lv 6</strong><small data-en="Target parry/resist −1% per level" data-zh="每级降低目标招架／抵抗 1%">每级降低目标招架／抵抗 1%</small></div><div class="preview-upgrade-item"><span>Interception</span><strong>Lv 5</strong><small data-en="Parry +0.5% per level" data-zh="每级招架 +0.5%">每级招架 +0.5%</small></div><div class="preview-upgrade-item"><span>Dissipation</span><strong>Lv 5</strong><small data-en="Resist +0.5% per level" data-zh="每级抵抗 +0.5%">每级抵抗 +0.5%</small></div><div class="preview-upgrade-item"><span>Evasion</span><strong>Lv 5</strong><small data-en="Evade +0.5% per level" data-zh="每级闪避 +0.5%">每级闪避 +0.5%</small></div><div class="preview-upgrade-item"><span>Defense</span><strong>Lv 7</strong><small data-en="Physical mitigation +1% per level" data-zh="每级物理减伤 +1%">每级物理减伤 +1%</small></div><div class="preview-upgrade-item"><span>Warding</span><strong>Lv 6</strong><small data-en="Magical mitigation +1% per level" data-zh="每级魔法减伤 +1%">每级魔法减伤 +1%</small></div><div class="preview-upgrade-item"><span>Swiftness</span><strong>Lv 5</strong><small data-en="Attack speed +2.5% per level" data-zh="每级攻击速度 +2.5%">每级攻击速度 +2.5%</small></div></div></section>
+            <section id="dokidoki-preview-skill-matrix" class="preview-surface preview-profile-span"><h2 class="preview-section-title"><span data-en="Skill loadout" data-zh="技能配置">技能配置</span><span class="preview-chip is-warn" data-en="Submission disabled" data-zh="提交已禁用">提交已禁用</span></h2><div class="preview-section-body preview-skill-list"><div class="preview-skill-row"><input class="preview-skill-input" value="Rending Claw" disabled><span data-en="Physical" data-zh="物理">物理</span><span data-en="Slashing" data-zh="斩击">斩击</span><strong>20</strong><span>50% MP</span></div><div class="preview-skill-row"><input class="preview-skill-input" value="Tail Smash" disabled><span data-en="Physical" data-zh="物理">物理</span><span data-en="Crushing" data-zh="打击">打击</span><strong>50</strong><span>50% MP</span></div><div class="preview-skill-row"><input class="preview-skill-input" value="Fiery Breath" disabled><span data-en="Magical" data-zh="魔法">魔法</span><span data-en="Fire" data-zh="火焰">火焰</span><strong>100</strong><span>100% SP</span></div></div><div class="hvmepp-top-actions"><button type="button" disabled data-preview-action data-en="Save skill loadout" data-zh="保存技能配置">保存技能配置</button></div></section>
+          </main>
+        </article>
+      </section>
+
+      <section data-preview-view="planner" hidden>
+        <article id="dokidoki-preview-manager-layout" class="hvmepp-panel dokidoki-preview-manager-layout" data-preview-mode="planner">
+          <header class="preview-hvmm-header preview-surface" data-preview-hvmm-section="header"><div><p class="preview-kicker">HV Monster Manager</p><h1 class="preview-title" data-en="Exact-target PL planner" data-zh="精确目标PL计划器">精确目标PL计划器</h1></div><div class="hvmepp-lang-switch"><button type="button" disabled data-preview-action>中文</button><button type="button" disabled data-preview-action>English</button><a href="#list" class="preview-chip" data-en="Close" data-zh="关闭">关闭</a></div></header>
+          <section class="hvmepp-card hvmepp-section" data-preview-hvmm-section="selection"><h2 class="hvmepp-section-heading" data-en="Select monsters" data-zh="选择怪物">选择怪物</h2><div class="hvmepp-section-body"><div class="hvmepp-selection-meta"><strong data-en="51 selected / 200 cached" data-zh="已选择51只 / 已缓存200只">已选择51只 / 已缓存200只</strong><span data-en="Click, Ctrl, Shift and Ctrl+A follow the real manager." data-zh="点击、Ctrl、Shift和Ctrl+A与真实管理器一致。">点击、Ctrl、Shift和Ctrl+A与真实管理器一致。</span></div><div class="hvmepp-monster-list" role="listbox" aria-multiselectable="true"><div class="hvmepp-monster-option hvmepp-selected" role="option" aria-selected="true"><span>#50</span><strong>Fuxuan</strong><span>PL 735</span></div><div class="hvmepp-monster-option hvmepp-selected" role="option" aria-selected="true"><span>#51</span><strong>Ningguang</strong><span>PL 742</span></div><div class="hvmepp-monster-option hvmepp-selected" role="option" aria-selected="true"><span>#52</span><strong>Barotrauma</strong><span>PL 729</span></div><div class="hvmepp-monster-option" role="option" aria-selected="false"><span>#53</span><strong>Moonlit Archive</strong><span>PL 750</span></div><div class="hvmepp-monster-option" role="option" aria-selected="false"><span>#54</span><strong>Brass Valkyrie</strong><span>PL 690</span></div></div></div></section>
+          <div data-preview-hvmm-section="workspace"><section class="hvmepp-card"><h2 class="hvmepp-section-heading" data-en="Planner controls" data-zh="计划设置">计划设置</h2><div class="hvmepp-controls"><label><span data-en="Target PL" data-zh="目标PL">目标PL</span><input value="750" disabled></label><label><span data-en="Market source" data-zh="水晶市场价">水晶市场价</span><select disabled><option data-en="Live market" data-zh="实时市场">实时市场</option></select></label><label><span data-en="Order price source" data-zh="订单价格来源">订单价格来源</span><select disabled><option data-en="Cached market" data-zh="缓存市场价">缓存市场价</option></select></label></div><div class="hvmepp-top-actions"><button type="button" disabled data-preview-action data-en="Refresh data" data-zh="刷新数据">刷新数据</button><button type="button" disabled data-preview-action data-en="Direct buy" data-zh="直接购买">直接购买</button><button type="button" disabled data-preview-action data-en="Place orders" data-zh="提交订单">提交订单</button><button type="button" disabled data-preview-action data-en="Run upgrade" data-zh="执行升级">执行升级</button></div></section><section class="hvmepp-card"><h2 class="hvmepp-section-heading" data-en="Crystal needs, inventory and shortage" data-zh="水晶需求、库存与缺口">水晶需求、库存与缺口</h2><div class="hvmepp-table-wrap"><table class="hvmepp-table"><thead><tr><th data-en="Crystal" data-zh="水晶">水晶</th><th data-en="Need" data-zh="需求">需求</th><th data-en="Stock" data-zh="库存">库存</th><th data-en="Shortage" data-zh="缺口">缺口</th></tr></thead><tbody><tr><td>Crystallized Strength</td><td>180</td><td>240</td><td>0</td></tr><tr><td>Crystallized Agility</td><td>126</td><td>180</td><td>0</td></tr></tbody></table></div></section><section class="hvmepp-card"><h2 class="hvmepp-section-heading" data-en="Upgrade plan" data-zh="升级方案">升级方案</h2><div class="hvmepp-table-wrap"><table class="hvmepp-table"><thead><tr><th>#</th><th data-en="Current" data-zh="当前PL">当前PL</th><th data-en="Target" data-zh="目标PL">目标PL</th><th data-en="Next request" data-zh="下次请求">下次请求</th><th data-en="Status" data-zh="状态">状态</th></tr></thead><tbody><tr><td>50</td><td>735</td><td>750</td><td>STR +10</td><td data-en="Replan after response" data-zh="响应后重算">响应后重算</td></tr><tr><td>51</td><td>742</td><td>750</td><td>DEX +8</td><td data-en="Exact" data-zh="精确可达">精确可达</td></tr></tbody></table></div></section><section class="hvmepp-card"><h2 class="hvmepp-section-heading" data-en="Execution log" data-zh="日志">日志</h2><pre class="hvmepp-log-output" data-en="[preview] 51 synthetic monsters selected.&#10;[preview] No Hentaiverse request can be sent." data-zh="[预览] 已选择51只虚构怪物。&#10;[预览] 不会发送任何Hentaiverse请求。">[预览] 已选择51只虚构怪物。
+[预览] 不会发送任何Hentaiverse请求。</pre></section></div>
+        </article>
+      </section>
+
+      <section data-preview-view="rename" hidden>
+        <article class="hvmepp-panel dokidoki-preview-manager-layout" data-preview-mode="rename">
+          <header class="preview-hvmm-header preview-surface" data-preview-hvmm-section="header"><div><p class="preview-kicker">HV Monster Manager</p><h1 class="preview-title" data-en="Monster rename" data-zh="怪物重命名">怪物重命名</h1></div><div class="hvmepp-lang-switch"><button type="button" disabled data-preview-action>中文</button><button type="button" disabled data-preview-action>English</button><a href="#list" class="preview-chip" data-en="Close" data-zh="关闭">关闭</a></div></header>
+          <section class="hvmepp-card hvmepp-section" data-preview-hvmm-section="selection"><h2 class="hvmepp-section-heading" data-en="Select monsters" data-zh="选择怪物">选择怪物</h2><div class="hvmepp-section-body"><div class="hvmepp-selection-meta"><strong data-en="3 selected / 200 cached" data-zh="已选择3只 / 已缓存200只">已选择3只 / 已缓存200只</strong></div><div class="hvmepp-monster-list" role="listbox" aria-multiselectable="true"><div class="hvmepp-monster-option hvmepp-selected" role="option" aria-selected="true"><span>#27</span><strong>Asteria</strong><span></span></div><div class="hvmepp-monster-option hvmepp-selected" role="option" aria-selected="true"><span>#199</span><strong>Atugi</strong><span></span></div><div class="hvmepp-monster-option hvmepp-selected" role="option" aria-selected="true"><span>#200</span><strong>Ranta</strong><span></span></div></div></div></section>
+          <div data-preview-hvmm-section="workspace"><section class="hvmepp-card"><h2 class="hvmepp-section-heading" data-en="Monster rename" data-zh="怪物重命名">怪物重命名</h2><div class="hvmepp-controls"><label><span data-en="Rename mode" data-zh="重命名模式">重命名模式</span><select disabled><option data-en="Text mapping" data-zh="文本映射">文本映射</option></select></label><button type="button" disabled data-preview-action data-en="Choose TXT file" data-zh="选择TXT文件">选择TXT文件</button><span class="preview-muted" data-en="No file selected" data-zh="未选择文件">未选择文件</span></div><div class="hvmepp-section-body"><label class="preview-kicker" for="preview-rename-editor" data-en="Slot, current name, new name" data-zh="编号, 当前名字, 新名字">编号, 当前名字, 新名字</label><textarea id="preview-rename-editor" class="hvmepp-rename-editor" disabled>27,Asteria,Asteria Prime
+199,Atugi,Atugi 0199
+200,Ranta,Ranta 0200</textarea></div><div class="hvmepp-top-actions"><button type="button" disabled data-preview-action data-en="Export all names" data-zh="导出全部名字">导出全部名字</button><button type="button" disabled data-preview-action data-en="Rename selected — disabled" data-zh="重命名选中怪物 — 已禁用">重命名选中怪物 — 已禁用</button></div></section><section class="hvmepp-card"><h2 class="hvmepp-section-heading" data-en="Validation and status" data-zh="校验与状态">校验与状态</h2><div class="hvmepp-section-body preview-data-list"><div class="preview-data-row"><span data-en="Mapped" data-zh="已映射">已映射</span><strong>3 / 3</strong><em></em></div><div class="preview-data-row"><span data-en="Conflicts" data-zh="冲突">冲突</span><strong>0</strong><em></em></div><p class="preview-rail-note" data-en="The offline preview never reads files or sends rename requests." data-zh="离线预览不会读取文件，也不会发送重命名请求。">离线预览不会读取文件，也不会发送重命名请求。</p></div></section></div>
+        </article>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    (() => {
+      'use strict';
+      const races = [['arthropod','Arthropod','节肢动物'],['avion','Avion','鸟类'],['beast','Beast','野兽'],['celestial','Celestial','天人'],['daimon','Daimon','魔灵'],['dragonkin','Dragonkin','龙类'],['elemental','Elemental','元素生物'],['giant','Giant','巨人'],['humanoid','Humanoid','类人'],['mechanoid','Mechanoid','机械体'],['reptilian','Reptilian','爬行类'],['sprite','Sprite','妖精'],['undead','Undead','亡灵']];
+      const names = ['Asteria','Nidhogg','Crimson Archive','Moonlit Custodian','Brass Valkyrie','Velvet Revenant','Dokidoki Wakuwaku','Cure Arcana'];
+      const primaryUpgradeConfig = [
+        { key: 'STR', zh: '力量', group: 'primary', max: 25, crystal: 'Crystal of Vigor', crystalZh: '力量水晶' },
+        { key: 'DEX', zh: '灵巧', group: 'primary', max: 25, crystal: 'Crystal of Finesse', crystalZh: '灵巧水晶' },
+        { key: 'AGI', zh: '敏捷', group: 'primary', max: 25, crystal: 'Crystal of Swiftness', crystalZh: '敏捷水晶' },
+        { key: 'END', zh: '体质', group: 'primary', max: 25, crystal: 'Crystal of Fortitude', crystalZh: '体质水晶' },
+        { key: 'INT', zh: '智力', group: 'primary', max: 25, crystal: 'Crystal of Cunning', crystalZh: '智力水晶' },
+        { key: 'WIS', zh: '智慧', group: 'primary', max: 25, crystal: 'Crystal of Knowledge', crystalZh: '智慧水晶' },
+      ];
+      const elementalUpgradeConfig = [
+        { key: 'FIRE', zh: '火', group: 'elemental', max: 50, crystal: 'Crystal of Flames', crystalZh: '火焰水晶' },
+        { key: 'COLD', zh: '冰', group: 'elemental', max: 50, crystal: 'Crystal of Frost', crystalZh: '冰冻水晶' },
+        { key: 'ELEC', zh: '雷', group: 'elemental', max: 50, crystal: 'Crystal of Lightning', crystalZh: '闪电水晶' },
+        { key: 'WIND', zh: '风', group: 'elemental', max: 50, crystal: 'Crystal of Tempest', crystalZh: '疾风水晶' },
+        { key: 'HOLY', zh: '圣', group: 'elemental', max: 50, crystal: 'Crystal of Devotion', crystalZh: '神圣水晶' },
+        { key: 'DARK', zh: '暗', group: 'elemental', max: 50, crystal: 'Crystal of Corruption', crystalZh: '暗黑水晶' },
+      ];
+      const chaosUpgradeConfig = [
+        { label: 'Scavenging', zh: '寻宝', group: 'chaos', max: 20 },
+        { label: 'Fortitude', zh: '坚韧', group: 'chaos', max: 20 },
+        { label: 'Brutality', zh: '残暴', group: 'chaos', max: 20 },
+        { label: 'Accuracy', zh: '精准', group: 'chaos', max: 20 },
+        { label: 'Precision', zh: '精密', group: 'chaos', max: 20 },
+        { label: 'Overpower', zh: '压制', group: 'chaos', max: 20 },
+        { label: 'Interception', zh: '拦截', group: 'chaos', max: 20 },
+        { label: 'Dissipation', zh: '消散', group: 'chaos', max: 20 },
+        { label: 'Evasion', zh: '闪避', group: 'chaos', max: 20 },
+        { label: 'Defense', zh: '防御', group: 'chaos', max: 20 },
+        { label: 'Warding', zh: '结界', group: 'chaos', max: 20 },
+        { label: 'Swiftness', zh: '迅捷', group: 'chaos', max: 20 },
+      ].map(item => ({ ...item, key: item.label }));
+      const upgradeGroups = [
+        { key: 'primary', en: 'Primary attributes', zh: '主要属性', items: primaryUpgradeConfig },
+        { key: 'elemental', en: 'Elemental mitigations', zh: '元素减伤', items: elementalUpgradeConfig },
+        { key: 'chaos', en: 'Chaos upgrades', zh: '混沌升级', items: chaosUpgradeConfig },
+      ];
+      const allUpgradeConfig = upgradeGroups.flatMap(group => group.items);
+      const previewToolbarMode = width => width >= 1020 ? 'single' : width >= 640 ? 'double' : 'drawer';
+      const stage = document.getElementById('dokidoki-preview-stage');
+      const roster = document.getElementById('slot_pane');
+      const rosterPanes = [document.getElementById('dokidoki-preview-roster-left-scroll'), document.getElementById('dokidoki-preview-roster-right-scroll')];
+      const rightRosterPane = document.getElementById('dokidoki-preview-roster-right');
+      const raceSelect = document.getElementById('dokidoki-preview-filter-race');
+      const splitRosterItems = (items, dual) => dual ? [items.slice(0, Math.ceil(items.length / 2)), items.slice(Math.ceil(items.length / 2))] : [items, []];
+      const makeCardMetric = (en, zh, value) => {
+        const metric = document.createElement('span'), label = document.createElement('span'), number = document.createElement('strong');
+        metric.className = 'preview-card-metric';
+        Object.assign(label.dataset, { en, zh });
+        label.textContent = zh;
+        number.textContent = value;
+        metric.append(label, number);
+        return metric;
+      };
+      const rows = Array.from({ length: 200 }, (_, offset) => {
+        const slot = offset + 1, raceIndex = offset % races.length, race = races[raceIndex];
+        const row = document.createElement('div');
+        const pl = slot % 17 === 0 ? 2000 : slot % 11 === 0 ? 1500 : 750;
+        const morale = 22000 + (offset % 9) * 200, hunger = 19000 + (offset % 13) * 200;
+        row.id = `preview-monster-${slot}`;
+        row.className = 'msl';
+        row.setAttribute('role', 'option');
+        row.setAttribute('aria-selected', String(slot === 1));
+        row.tabIndex = slot === 1 ? 0 : -1;
+        Object.assign(row.dataset, { slot: String(slot), name: names[offset % names.length], raceKey: race[0], raceEn: race[1], raceZh: race[2], pl: String(pl), morale: String(morale), hunger: String(hunger), record: `${offset % 23} / ${offset % 4}`, gains: String(offset % 6), gifts: String(13 + (offset % 64)) });
+        [String(slot), row.dataset.name, String(pl), race[2], String(hunger), String(morale), row.dataset.record, row.dataset.gains, row.dataset.gifts].forEach((value, index) => {
+          const cell = document.createElement('div');
+          cell.textContent = value;
+          if (index === 0) { cell.dataset.previewSlot = String(slot); cell.style.setProperty('--preview-portrait-x', `${-raceIndex * 48}px`); }
+          if (index === 2) cell.textContent = `PL ${value}`;
+          if (index === 3) cell.dataset.previewRace = String(raceIndex);
+          if (index === 4 || index === 5) { const meter = document.createElement('span'); meter.className = 'msn'; meter.style.setProperty('--preview-fill', `${index === 4 ? 72 + offset % 21 : 78 + offset % 17}%`); meter.appendChild(index === 4 ? makeCardMetric('Hunger', '饥饿', Number(value).toLocaleString('zh-CN')) : makeCardMetric('Morale', '情绪', Number(value).toLocaleString('zh-CN'))); cell.textContent = ''; cell.appendChild(meter); }
+          if (index === 6) { const [wins, kills] = value.split(' / '); cell.textContent = ''; cell.append(makeCardMetric('Wins', '胜', wins), makeCardMetric('Kills', '杀', kills)); }
+          if (index === 7) { cell.textContent = ''; cell.appendChild(makeCardMetric('New gifts', '新礼', value)); }
+          if (index === 8) { cell.textContent = ''; cell.appendChild(makeCardMetric('Total gifts', '总礼', value)); }
+          row.appendChild(cell);
+        });
+        return row;
+      });
+      races.forEach(race => { const option = document.createElement('option'); option.value = race[0]; option.dataset.en = race[1]; option.dataset.zh = race[2]; option.textContent = race[2]; raceSelect.appendChild(option); });
+
+      const plannerSeedPL = new Map([['50', 735], ['51', 742], ['52', 729], ['53', 750], ['54', 690], ['55', 750]]);
+      const plannerCatalogSlots = ['50', '51', '52', '53', '54', '55'];
+      const plannerMonsters = new Map();
+      const plannerSelected = new Set(['50', '51', '52']);
+      const plannerOpenCards = new Set();
+      let activePlannerSlot = '50', draftMode = 'current', plannerLog = null, toolDrawerOpen = false, toolDrawerMode = 'single';
+      const makePlannerMonster = slot => {
+        const numericSlot = Number(slot), source = rows[numericSlot - 1];
+        if (!source) return null;
+        const current = {};
+        primaryUpgradeConfig.forEach((item, index) => { current[item.key] = 9 + ((numericSlot + index) % 4); });
+        elementalUpgradeConfig.forEach((item, index) => { current[item.key] = 22 + ((numericSlot + index) % 5); });
+        chaosUpgradeConfig.forEach((item, index) => { current[item.key] = 3 + ((numericSlot + index) % 5); });
+        return {
+          slot: String(slot), name: source.dataset.name, currentPL: plannerSeedPL.get(String(slot)) ?? Number(source.dataset.pl),
+          current, target: { ...current }, raw: Object.fromEntries(Object.entries(current).map(([key, value]) => [key, String(value)])), invalid: {}, error: '',
+        };
+      };
+      const ensurePlannerMonster = slot => {
+        const key = String(slot);
+        if (!plannerMonsters.has(key)) plannerMonsters.set(key, makePlannerMonster(key));
+        if (!plannerCatalogSlots.includes(key)) plannerCatalogSlots.unshift(key);
+        return plannerMonsters.get(key);
+      };
+      plannerCatalogSlots.forEach(ensurePlannerMonster);
+      const selectedPlannerMonsters = () => [...plannerSelected].map(ensurePlannerMonster).filter(Boolean);
+      const previewGainScaled = (item, from, to) => {
+        let gain = 0;
+        for (let level = from; level < to; level++) gain += item.group === 'primary' ? 6 + level : item.group === 'elemental' ? Math.floor(1 + level * .1) * 2 : 0;
+        return gain;
+      };
+      const projectedPL = monster => monster.currentPL + Math.round([...primaryUpgradeConfig, ...elementalUpgradeConfig]
+        .reduce((sum, item) => sum + previewGainScaled(item, monster.current[item.key], monster.target[item.key]), 0) / 2);
+      const itemRequirement = (item, from, to) => {
+        if (item.group === 'chaos') return (from + 1 + to) * (to - from) / 2;
+        const base = item.group === 'primary' ? 50 : 10, rate = item.group === 'primary' ? 1.555079154 : 1.26485522;
+        let total = 0;
+        for (let level = from; level < to; level++) total += Math.round(base * Math.pow(rate, level));
+        return total;
+      };
+      const solvePreviewExact = (monster, targetPL) => {
+        const needed = (targetPL - monster.currentPL) * 2;
+        if (!Number.isInteger(needed) || needed < 0) return null;
+        let states = new Map([[0, { steps: 0, targets: {} }]]);
+        for (const item of [...primaryUpgradeConfig, ...elementalUpgradeConfig]) {
+          const next = new Map();
+          for (const [total, state] of states) {
+            const from = monster.current[item.key];
+            for (let to = from; to <= item.max; to++) {
+              const gain = previewGainScaled(item, from, to), combined = total + gain;
+              if (combined > needed) break;
+              const candidate = { steps: state.steps + to - from, targets: { ...state.targets, [item.key]: to } };
+              const previous = next.get(combined);
+              if (!previous || candidate.steps < previous.steps) next.set(combined, candidate);
+            }
+          }
+          states = next;
+        }
+        return states.get(needed) || null;
+      };
+      const resetMonsterDraft = monster => {
+        monster.target = { ...monster.current };
+        monster.raw = Object.fromEntries(allUpgradeConfig.map(item => [item.key, String(monster.current[item.key])]));
+        monster.invalid = {};
+        monster.exact = false;
+        monster.error = '';
+      };
+      const isMonsterDirty = monster => Object.keys(monster.invalid).length > 0 || allUpgradeConfig.some(item => monster.target[item.key] !== monster.current[item.key]);
+      const classifyPreviewMonster = (monster, targetPL) => {
+        if (monster.error || Object.keys(monster.invalid).length) return 'invalid';
+        const crystal = [...primaryUpgradeConfig, ...elementalUpgradeConfig].some(item => monster.target[item.key] !== monster.current[item.key]);
+        const chaos = chaosUpgradeConfig.some(item => monster.target[item.key] !== monster.current[item.key]);
+        if (!crystal && !chaos) return 'none';
+        if (!crystal) return 'chaos-only';
+        return projectedPL(monster) === targetPL ? 'pl' : 'invalid';
+      };
+      const syncDraftMode = () => {
+        const target = Number(document.getElementById('dokidoki-preview-target-pl')?.value), monsters = selectedPlannerMonsters();
+        if (!Number.isFinite(target) || target < 0 || target > 2250 || !Number.isInteger(target * 2)) {
+          draftMode = 'invalid';
+          return;
+        }
+        const active = monsters.map(monster => [monster, classifyPreviewMonster(monster, target)]).filter(([, status]) => status !== 'none');
+        if (!active.length) draftMode = 'current';
+        else if (active.some(([, status]) => status === 'invalid')) draftMode = 'invalid';
+        else if (active.every(([, status]) => status === 'chaos-only')) draftMode = 'chaos';
+        else if (active.some(([, status]) => status === 'chaos-only')) draftMode = 'mixed';
+        else draftMode = active.every(([monster]) => monster.exact) ? 'exact' : 'custom';
+      };
+      const setupPlannerMarkup = () => {
+        const article = document.querySelector('[data-preview-view="planner"] article');
+        article.innerHTML = `
+          <header class="preview-hvmm-header preview-surface" data-preview-hvmm-section="header"><div><p class="preview-kicker">HV Monster Manager</p><h1 class="preview-title" data-en="PL Planner and Upgrader" data-zh="PL计划器与怪物升级">PL计划器与怪物升级</h1></div><div class="hvmepp-lang-switch"><a href="#list" class="preview-chip" data-en="Close" data-zh="关闭">关闭</a></div></header>
+          <details class="hvmepp-card preview-manager-selection" data-preview-hvmm-section="selection" open><summary class="hvmepp-section-heading"><span data-en="Select monsters" data-zh="选择怪物">选择怪物</span></summary><div class="hvmepp-section-body"><div class="hvmepp-selection-meta"><strong id="dokidoki-preview-planner-selection-summary"></strong><span data-en="No pagination; every selected monster appears in the editor." data-zh="不分页；所有选中怪物都会进入升级编辑器。">不分页；所有选中怪物都会进入升级编辑器。</span></div><div id="dokidoki-preview-planner-selection" class="hvmepp-monster-list" role="listbox" aria-multiselectable="true"></div></div></details>
+          <div data-preview-hvmm-section="workspace">
+            <section id="dokidoki-preview-planner-controls" class="hvmepp-card"><h2 class="hvmepp-section-heading" data-en="Planner settings" data-zh="计划设置">计划设置</h2><div class="hvmepp-controls"><label><span data-en="Target PL" data-zh="目标PL">目标PL</span><input id="dokidoki-preview-target-pl" type="number" min="0" max="2250" value="750"></label><label><span data-en="Market source" data-zh="水晶市场价">水晶市场价</span><select disabled><option data-en="Synthetic inventory" data-zh="虚构库存">虚构库存</option></select></label></div><div class="preview-planner-status" aria-live="polite"><span id="dokidoki-preview-draft-status" data-preview-draft-mode="current"><span class="preview-chip" data-draft-label="current" data-en="Current levels" data-zh="当前等级">当前等级</span><span class="preview-chip is-good" data-draft-label="exact" data-en="Exact plan" data-zh="精确方案" hidden>精确方案</span><span class="preview-chip is-warn" data-draft-label="custom" data-en="Custom PL" data-zh="自定义PL" hidden>自定义PL</span><span class="preview-chip is-good" data-draft-label="chaos" data-en="Chaos only" data-zh="仅混沌" hidden>仅混沌</span><span class="preview-chip is-warn" data-draft-label="mixed" data-en="Mixed batch" data-zh="混合批次" hidden>混合批次</span><span class="preview-chip is-warn" data-draft-label="invalid" data-en="Invalid draft" data-zh="草案无效" hidden>草案无效</span></span><p id="dokidoki-preview-draft-message" class="preview-draft-message"></p></div><div id="dokidoki-preview-recalculate-warning" class="preview-warning" role="alert" hidden><strong data-en="Recalculating will replace every manual target, including Chaos upgrades." data-zh="重新计算会覆盖全部手动目标，包括混沌升级。">重新计算会覆盖全部手动目标，包括混沌升级。</strong><div class="preview-warning-actions"><button id="dokidoki-preview-confirm-recalculate" type="button" data-preview-local-action data-en="Replace with exact plan" data-zh="覆盖为精确方案">覆盖为精确方案</button><button id="dokidoki-preview-cancel-recalculate" type="button" data-preview-local-action class="is-secondary" data-en="Keep editing" data-zh="继续编辑">继续编辑</button></div></div><div class="hvmepp-top-actions"><button id="dokidoki-preview-calculate" type="button" data-preview-local-action data-en="Calculate exact plan" data-zh="计算精确方案">计算精确方案</button><button id="dokidoki-preview-reset-draft" type="button" data-preview-local-action class="is-secondary" data-en="Reset draft" data-zh="重置草案">重置草案</button><button id="dokidoki-preview-review-confirmation" type="button" data-preview-local-action data-en="Review confirmation" data-zh="预览确认">预览确认</button><button id="dokidoki-preview-direct-buy" type="button" disabled data-preview-action data-en="Direct buy — disabled" data-zh="直接购买 — 已禁用">直接购买 — 已禁用</button><button id="dokidoki-preview-place-orders" type="button" disabled data-preview-action data-en="Place orders — disabled" data-zh="提交订单 — 已禁用">提交订单 — 已禁用</button><button id="dokidoki-preview-run-upgrade" type="button" disabled data-preview-action data-en="Run upgrade — offline disabled" data-zh="执行升级 — 离线禁用">执行升级 — 离线禁用</button></div></section>
+            <section id="dokidoki-preview-upgrade-editor" class="hvmepp-card"><h2 class="hvmepp-section-heading"><span data-en="Upgrade editor" data-zh="升级编辑器">升级编辑器</span></h2><div class="preview-upgrade-toolbar"><p data-en="The matrix itself is the plan. Chaos levels do not change PL." data-zh="升级矩阵本身就是方案；混沌等级不会改变PL。">升级矩阵本身就是方案；混沌等级不会改变PL。</p><div><span class="preview-chip" data-upgrade-group="primary" data-en="6 Primary" data-zh="6项主属性">6项主属性</span> <span class="preview-chip" data-upgrade-group="elemental" data-en="6 Elemental" data-zh="6项元素减伤">6项元素减伤</span> <span class="preview-chip" data-upgrade-group="chaos" data-en="12 Chaos" data-zh="12项混沌升级">12项混沌升级</span></div></div><div class="preview-upgrade-matrix-wrap"><table id="dokidoki-preview-upgrade-matrix" class="preview-upgrade-matrix"></table></div><div id="dokidoki-preview-upgrade-cards"></div></section>
+            <details id="dokidoki-preview-resource-section" class="hvmepp-card preview-collapsible-card"><summary class="hvmepp-section-heading"><span data-en="Upgrade resources, inventory and shortage" data-zh="升级资源需求、库存与缺口">升级资源需求、库存与缺口</span><span id="dokidoki-preview-shortage-badge" class="preview-chip">0</span></summary><div class="hvmepp-section-body"><div class="preview-resource-summary"><div class="preview-metric"><strong id="dokidoki-preview-crystal-total">0</strong><span data-en="Crystals required" data-zh="所需水晶">所需水晶</span></div><div class="preview-metric"><strong id="dokidoki-preview-token-total">0</strong><span data-en="Chaos Tokens" data-zh="混沌令牌">混沌令牌</span></div><div class="preview-metric"><strong id="dokidoki-preview-resource-shortage">0</strong><span data-en="Shortage" data-zh="缺口">缺口</span></div><div class="preview-metric"><strong id="dokidoki-preview-projected-count">0</strong><span data-en="Projected PL" data-zh="投影PL">投影PL</span></div></div><div id="dokidoki-preview-resource-result"></div></div></details>
+            <details id="dokidoki-preview-log-section" class="hvmepp-card preview-collapsible-card"><summary class="hvmepp-section-heading"><span data-en="Execution log" data-zh="日志">日志</span></summary><pre id="dokidoki-preview-planner-log" class="hvmepp-log-output">[预览] 不会发送任何Hentaiverse请求。</pre></details>
+          </div><dialog id="dokidoki-preview-confirm-dialog" class="preview-confirm-dialog" aria-labelledby="dokidoki-preview-confirm-title"><div><h2 id="dokidoki-preview-confirm-title" data-en="Confirm upgrade draft" data-zh="确认升级草案">确认升级草案</h2><p id="dokidoki-preview-confirm-summary"></p><details><summary data-en="Full monster details" data-zh="完整逐怪明细">完整逐怪明细</summary><ol id="dokidoki-preview-confirm-list" class="preview-confirm-list"></ol></details><div class="preview-confirm-actions"><button id="dokidoki-preview-confirm-execute" type="button" disabled data-preview-action data-en="Execute — offline disabled" data-zh="执行 — 离线禁用">执行 — 离线禁用</button><button id="dokidoki-preview-confirm-cancel" type="button" class="is-secondary" data-preview-local-action data-en="Cancel" data-zh="取消">取消</button></div></div></dialog>`;
+        article.dataset.previewDraftMode = 'current';
+      };
+      const localText = (en, zh) => isChinese ? zh : en;
+      const upgradeLabel = item => isChinese && item.zh ? `${item.key} · ${item.zh}` : item.key;
+      const makeLocalButton = (text, action, extra = {}) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = text;
+        button.dataset.previewLocalAction = '';
+        Object.assign(button.dataset, { action, ...extra });
+        return button;
+      };
+      const makeGroupActions = (group, slot = '') => {
+        const actions = document.createElement('span');
+        actions.className = 'preview-group-actions';
+        const increment = makeLocalButton('+1', 'group-increment', { group: group.key, slot });
+        increment.setAttribute('aria-label', localText(`Increase ${group.en} by one`, `${group.zh}全部加1`));
+        increment.title = increment.getAttribute('aria-label');
+        actions.appendChild(increment);
+        if (group.key !== 'chaos') {
+          const equalize = makeLocalButton('=', 'group-equalize', { group: group.key, slot });
+          equalize.setAttribute('aria-label', localText(`Equalize ${group.en}`, `拉平${group.zh}`));
+          equalize.title = equalize.getAttribute('aria-label');
+          actions.appendChild(equalize);
+        }
+        return actions;
+      };
+      const makeLevelInput = (monster, item, compact = false) => {
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = String(monster.current[item.key]);
+        input.max = String(item.max);
+        input.value = monster.raw[item.key];
+        input.dataset.upgradeSlot = monster.slot;
+        input.dataset.upgradeKey = item.key;
+        input.setAttribute('aria-invalid', String(Boolean(monster.invalid[item.key])));
+        input.setAttribute('aria-label', localText(`${monster.name} ${item.key} target level`, `${monster.name} ${item.zh || item.key}目标等级`));
+        if (!compact) {
+          const editor = document.createElement('label');
+          editor.className = 'preview-level-editor';
+          const current = document.createElement('small');
+          current.textContent = `${monster.current[item.key]} →`;
+          editor.append(current, input);
+          return editor;
+        }
+        return input;
+      };
+      const renderPlannerSelection = () => {
+        const list = document.getElementById('dokidoki-preview-planner-selection');
+        const summary = document.getElementById('dokidoki-preview-planner-selection-summary');
+        if (!list || !summary) return;
+        summary.textContent = localText(`${plannerSelected.size} selected / 200 cached`, `已选择${plannerSelected.size}只 / 已缓存200只`);
+        const fragment = document.createDocumentFragment();
+        plannerCatalogSlots.map(ensurePlannerMonster).filter(Boolean).forEach(monster => {
+          const option = document.createElement('div');
+          const selected = plannerSelected.has(monster.slot);
+          option.className = `hvmepp-monster-option${selected ? ' hvmepp-selected' : ''}`;
+          option.setAttribute('role', 'option');
+          option.setAttribute('aria-selected', String(selected));
+          option.tabIndex = 0;
+          option.dataset.plannerSlot = monster.slot;
+          option.innerHTML = `<span>#${monster.slot}</span><strong></strong><span>PL ${monster.currentPL}</span>`;
+          option.querySelector('strong').textContent = monster.name;
+          fragment.appendChild(option);
+        });
+        list.replaceChildren(fragment);
+      };
+      const renderUpgradeMatrix = monsters => {
+        const table = document.getElementById('dokidoki-preview-upgrade-matrix');
+        if (!table) return;
+        const head = document.createElement('thead'), groupRow = document.createElement('tr'), itemRow = document.createElement('tr');
+        const identities = [
+          ['#', 'preview-id-slot'], [localText('Name', '名称'), 'preview-id-name'],
+          [localText('Current PL', '当前PL'), 'preview-id-current'], [localText('Projected PL', '投影PL'), 'preview-id-projected'],
+          [localText('Reset', '重置'), 'preview-id-reset'],
+        ];
+        identities.forEach(([label, className]) => {
+          const th = document.createElement('th');
+          th.rowSpan = 2;
+          th.className = `preview-id-cell ${className}`;
+          th.textContent = label;
+          groupRow.appendChild(th);
+        });
+        upgradeGroups.forEach(group => {
+          const th = document.createElement('th');
+          th.colSpan = group.items.length;
+          th.className = 'preview-group-heading';
+          const label = document.createElement('span');
+          label.textContent = localText(group.en, group.zh);
+          th.append(label, makeGroupActions(group));
+          groupRow.appendChild(th);
+          group.items.forEach(item => {
+            const itemHead = document.createElement('th');
+            itemHead.textContent = upgradeLabel(item);
+            itemHead.title = localText(item.key, item.zh || item.key);
+            itemRow.appendChild(itemHead);
+          });
+        });
+        head.append(groupRow, itemRow);
+        const body = document.createElement('tbody');
+        const targetPL = Number(document.getElementById('dokidoki-preview-target-pl').value);
+        monsters.forEach(monster => {
+          const row = document.createElement('tr'), projection = projectedPL(monster), dirty = isMonsterDirty(monster), warning = classifyPreviewMonster(monster, targetPL) === 'invalid';
+          row.dataset.upgradeRow = monster.slot;
+          row.tabIndex = -1;
+          row.classList.toggle('is-custom', dirty);
+          row.classList.toggle('has-warning', warning);
+          const identityValues = [monster.slot, monster.name, monster.currentPL, warning ? `${projection} (${projection - targetPL >= 0 ? '+' : ''}${projection - targetPL})` : projection];
+          const identityClasses = ['preview-id-slot', 'preview-id-name', 'preview-id-current', 'preview-id-projected'];
+          identityValues.forEach((value, index) => {
+            const cell = document.createElement('td');
+            cell.className = `preview-id-cell ${identityClasses[index]}`;
+            cell.textContent = value;
+            row.appendChild(cell);
+          });
+          const resetCell = document.createElement('td');
+          resetCell.className = 'preview-id-cell preview-id-reset';
+          const reset = makeLocalButton('↺', 'row-reset', { slot: monster.slot });
+          reset.className = 'preview-row-reset';
+          reset.setAttribute('aria-label', localText(`Reset ${monster.name}`, `重置${monster.name}`));
+          resetCell.appendChild(reset);
+          row.appendChild(resetCell);
+          allUpgradeConfig.forEach(item => {
+            const cell = document.createElement('td');
+            cell.appendChild(makeLevelInput(monster, item));
+            row.appendChild(cell);
+          });
+          body.appendChild(row);
+        });
+        table.replaceChildren(head, body);
+      };
+      const renderUpgradeCards = monsters => {
+        const container = document.getElementById('dokidoki-preview-upgrade-cards');
+        if (!container) return;
+        container.querySelectorAll('[data-upgrade-card]').forEach(card => {
+          if (card.open) plannerOpenCards.add(card.dataset.upgradeCard); else plannerOpenCards.delete(card.dataset.upgradeCard);
+        });
+        const targetPL = Number(document.getElementById('dokidoki-preview-target-pl').value), fragment = document.createDocumentFragment();
+        monsters.forEach(monster => {
+          const projection = projectedPL(monster), dirty = isMonsterDirty(monster), warning = classifyPreviewMonster(monster, targetPL) === 'invalid';
+          const card = document.createElement('details');
+          card.className = `preview-upgrade-card${warning ? ' has-warning' : ''}`;
+          card.dataset.upgradeCard = monster.slot;
+          card.open = plannerOpenCards.has(monster.slot) || monster.slot === activePlannerSlot || dirty || Boolean(monster.error);
+          const summary = document.createElement('summary');
+          summary.innerHTML = `<span>#${monster.slot}</span><strong></strong><span>PL ${monster.currentPL} → ${projection}</span>`;
+          summary.querySelector('strong').textContent = monster.name;
+          const body = document.createElement('div');
+          body.className = 'preview-upgrade-card-body';
+          upgradeGroups.forEach(group => {
+            const section = document.createElement('section');
+            section.className = 'preview-upgrade-card-group';
+            const heading = document.createElement('h4'), label = document.createElement('span');
+            label.textContent = localText(group.en, group.zh);
+            heading.append(label, makeGroupActions(group, monster.slot));
+            const grid = document.createElement('div');
+            grid.className = 'preview-upgrade-card-grid';
+            group.items.forEach(item => {
+              const field = document.createElement('label');
+              field.className = 'preview-upgrade-card-field';
+              const text = document.createElement('span');
+              text.textContent = `${upgradeLabel(item)} · ${monster.current[item.key]} →`;
+              field.append(text, makeLevelInput(monster, item, true));
+              grid.appendChild(field);
+            });
+            section.append(heading, grid);
+            body.appendChild(section);
+          });
+          const reset = makeLocalButton(localText('Reset monster', '重置该怪物'), 'row-reset', { slot: monster.slot });
+          reset.classList.add('is-secondary');
+          body.appendChild(reset);
+          card.append(summary, body);
+          fragment.appendChild(card);
+        });
+        container.replaceChildren(fragment);
+      };
+      const getPreviewResourcePlan = () => {
+        const monsters = selectedPlannerMonsters(), requirements = new Map(allUpgradeConfig.map(item => [item.key, 0]));
+        monsters.forEach(monster => allUpgradeConfig.forEach(item => requirements.set(item.key, requirements.get(item.key) + itemRequirement(item, monster.current[item.key], monster.target[item.key]))));
+        const crystalItems = [...primaryUpgradeConfig, ...elementalUpgradeConfig], crystalTotal = crystalItems.reduce((sum, item) => sum + requirements.get(item.key), 0);
+        const tokenTotal = chaosUpgradeConfig.reduce((sum, item) => sum + requirements.get(item.key), 0);
+        const rowsData = crystalItems.map(item => ({ item, name: localText(item.crystal, item.crystalZh), required: requirements.get(item.key), stock: item.group === 'primary' ? 250000 : 50000 }));
+        rowsData.push({ item: { key: 'CHAOS', group: 'chaos' }, name: localText('Chaos Tokens', '混沌令牌'), required: tokenTotal, stock: 80 });
+        return { monsters, crystalTotal, tokenTotal, rowsData, shortage: rowsData.reduce((sum, row) => sum + Math.max(0, row.required - row.stock), 0) };
+      };
+      const renderResourceSummary = () => {
+        const { monsters, crystalTotal, tokenTotal, rowsData, shortage } = getPreviewResourcePlan(), details = document.getElementById('dokidoki-preview-resource-section');
+        document.getElementById('dokidoki-preview-crystal-total').textContent = crystalTotal.toLocaleString(isChinese ? 'zh-CN' : 'en-US');
+        document.getElementById('dokidoki-preview-token-total').textContent = tokenTotal.toLocaleString(isChinese ? 'zh-CN' : 'en-US');
+        document.getElementById('dokidoki-preview-resource-shortage').textContent = shortage.toLocaleString(isChinese ? 'zh-CN' : 'en-US');
+        document.getElementById('dokidoki-preview-projected-count').textContent = String(monsters.length);
+        document.getElementById('dokidoki-preview-shortage-badge').textContent = shortage ? localText(`Shortage ${shortage.toLocaleString()}`, `缺口 ${shortage.toLocaleString()}`) : localText('Sufficient', '充足');
+        document.getElementById('dokidoki-preview-resource-shortage').closest('.preview-metric').classList.toggle('has-shortage', shortage > 0);
+        if (shortage) details.open = true;
+        const makeTable = data => {
+          const wrap = document.createElement('div'), table = document.createElement('table'), body = document.createElement('tbody');
+          wrap.className = 'hvmepp-table-wrap';
+          table.className = 'hvmepp-table preview-resource-table';
+          table.innerHTML = `<thead><tr><th>${localText('Resource', '资源')}</th><th>${localText('Required', '需求')}</th><th>${localText('Stock', '库存')}</th><th>${localText('Shortage', '缺口')}</th></tr></thead>`;
+          data.forEach(rowData => {
+            const rowShortage = Math.max(0, rowData.required - rowData.stock), row = document.createElement('tr');
+            if (rowShortage) row.className = 'has-shortage';
+            [rowData.name, rowData.required.toLocaleString(), rowData.stock.toLocaleString(), rowShortage.toLocaleString()].forEach(value => {
+              const cell = document.createElement('td');
+              cell.textContent = value;
+              row.appendChild(cell);
+            });
+            body.appendChild(row);
+          });
+          table.appendChild(body);
+          wrap.appendChild(table);
+          return wrap;
+        };
+        const result = document.createElement('div'), requiredRows = rowsData.filter(row => row.required > 0);
+        if (requiredRows.length) result.appendChild(makeTable(requiredRows));
+        else result.appendChild(Object.assign(document.createElement('p'), { textContent: localText('No resources are required by the current draft.', '当前草案不需要资源。') }));
+        const allRows = document.createElement('details');
+        allRows.className = 'preview-all-resources';
+        allRows.appendChild(Object.assign(document.createElement('summary'), { textContent: localText('Show all 13 resources', '显示全部13项资源') }));
+        allRows.appendChild(makeTable(rowsData));
+        result.appendChild(allRows);
+        document.getElementById('dokidoki-preview-resource-result').replaceChildren(result);
+      };
+      const renderPlannerLog = () => {
+        const output = document.getElementById('dokidoki-preview-planner-log');
+        if (!output) return;
+        output.textContent = plannerLog ? localText(plannerLog.en, plannerLog.zh) : localText('[preview] No Hentaiverse request can be sent.', '[预览] 不会发送任何Hentaiverse请求。');
+        if (plannerLog?.error) document.getElementById('dokidoki-preview-log-section').open = true;
+      };
+      const setPlannerLog = (en, zh, error = false) => { plannerLog = { en, zh, error }; renderPlannerLog(); };
+      const openPreviewConfirmation = () => {
+        syncDraftMode();
+        if (draftMode === 'current' || draftMode === 'invalid') {
+          setPlannerLog('A valid modified draft is required before confirmation.', '确认前需要一份有效且已修改的草案。', true);
+          renderPlanner();
+          return;
+        }
+        const dialog = document.getElementById('dokidoki-preview-confirm-dialog'), list = document.getElementById('dokidoki-preview-confirm-list');
+        const { monsters, crystalTotal, tokenTotal, shortage } = getPreviewResourcePlan(), target = Number(document.getElementById('dokidoki-preview-target-pl').value);
+        document.getElementById('dokidoki-preview-confirm-summary').textContent = localText(
+          `${monsters.length} selected · ${crystalTotal.toLocaleString()} crystals · ${tokenTotal.toLocaleString()} Chaos Tokens · shortage ${shortage.toLocaleString()}. Offline preview cannot execute.`,
+          `${monsters.length}只已选 · ${crystalTotal.toLocaleString()}水晶 · ${tokenTotal.toLocaleString()}混沌令牌 · 缺口${shortage.toLocaleString()}。离线预览不能执行。`
+        );
+        list.replaceChildren(...monsters.filter(isMonsterDirty).map(monster => {
+          const row = document.createElement('li'), status = classifyPreviewMonster(monster, target);
+          row.textContent = `#${monster.slot} ${monster.name} · PL ${monster.currentPL} → ${projectedPL(monster)} · ${status}`;
+          return row;
+        }));
+        if (typeof dialog.showModal === 'function') {
+          dialog.showModal();
+          queueMicrotask(() => document.getElementById('dokidoki-preview-confirm-cancel').focus());
+        } else dialog.setAttribute('open', '');
+      };
+      const renderDraftStatus = () => {
+        const article = document.querySelector('[data-preview-view="planner"] article'), status = document.getElementById('dokidoki-preview-draft-status'), message = document.getElementById('dokidoki-preview-draft-message'), run = document.getElementById('dokidoki-preview-run-upgrade');
+        if (!article || !status) return;
+        article.dataset.previewDraftMode = draftMode;
+        status.dataset.previewDraftMode = draftMode;
+        status.querySelectorAll('[data-draft-label]').forEach(label => { label.hidden = label.dataset.draftLabel !== draftMode; });
+        const monsters = selectedPlannerMonsters(), target = Number(document.getElementById('dokidoki-preview-target-pl').value);
+        const states = monsters.map(monster => classifyPreviewMonster(monster, target));
+        message.style.color = '';
+        if (draftMode === 'exact') message.textContent = localText(`${monsters.length} monsters have an exact PL ${target} draft.`, `${monsters.length}只怪物已生成精确到PL ${target}的草案。`);
+        else if (draftMode === 'chaos') message.textContent = localText('Only Chaos upgrades changed; target PL differences are intentionally ignored.', '仅修改了混沌升级；将按规则忽略目标PL差异。');
+        else if (draftMode === 'mixed') message.textContent = localText('This batch mixes exact-PL and Chaos-only monsters.', '该批次混合了精确PL与仅混沌怪物。');
+        else if (draftMode === 'custom') message.textContent = localText('Every modified crystal target still reaches the requested PL exactly.', '所有已修改的水晶属性仍精确达到目标PL。');
+        else if (draftMode === 'invalid') {
+          const count = states.filter(value => value === 'invalid').length;
+          message.textContent = localText(`${count} monster draft(s) contain invalid input or miss target PL ${target}; calculation and execution are blocked.`, `${count}只怪物的草案输入无效或未精确达到目标PL ${target}，已阻止计算与执行。`);
+          message.style.color = 'var(--preview-danger)';
+        } else message.textContent = localText('Edit levels directly or calculate an exact plan.', '可直接编辑等级，或计算精确方案。');
+        const runEn = draftMode === 'chaos' ? 'Run Chaos upgrades — offline disabled' : draftMode === 'mixed' ? 'Run mixed upgrade — offline disabled' : draftMode === 'custom' ? 'Run custom upgrade — offline disabled' : 'Run exact upgrade — offline disabled';
+        const runZh = draftMode === 'chaos' ? '执行仅混沌升级 — 离线禁用' : draftMode === 'mixed' ? '执行混合升级 — 离线禁用' : draftMode === 'custom' ? '执行自定义升级 — 离线禁用' : '执行精确升级 — 离线禁用';
+        Object.assign(run.dataset, { en: runEn, zh: runZh });
+        run.textContent = localText(runEn, runZh);
+      };
+      const renderUpgradeEditor = () => {
+        const monsters = selectedPlannerMonsters();
+        renderUpgradeMatrix(monsters);
+        renderUpgradeCards(monsters);
+      };
+      const renderPlanner = () => {
+        renderPlannerSelection();
+        renderUpgradeEditor();
+        renderResourceSummary();
+        renderDraftStatus();
+        renderPlannerLog();
+      };
+      const markDraftCustom = () => {
+        syncDraftMode();
+        document.getElementById('dokidoki-preview-recalculate-warning').hidden = true;
+        renderPlanner();
+      };
+      const resetDraft = (slot = '') => {
+        (slot ? [ensurePlannerMonster(slot)] : selectedPlannerMonsters()).filter(Boolean).forEach(resetMonsterDraft);
+        syncDraftMode();
+        document.getElementById('dokidoki-preview-recalculate-warning').hidden = true;
+        setPlannerLog('Draft reset to current levels.', '草案已重置为当前等级。');
+        renderPlanner();
+      };
+      const applyExactPlan = (force = false) => {
+        const selected = selectedPlannerMonsters();
+        const targetInput = document.getElementById('dokidoki-preview-target-pl'), targetValue = Number(targetInput.value);
+        if (!Number.isFinite(targetValue) || targetValue < 0 || targetValue > 2250 || !Number.isInteger(targetValue * 2) || selected.some(monster => Object.keys(monster.invalid).length)) {
+          setPlannerLog('Calculation is blocked until every invalid level is corrected.', '存在无效等级，修正前不能计算。', true);
+          syncDraftMode();
+          renderPlanner();
+          return;
+        }
+        if (selected.some(isMonsterDirty) && !force) {
+          document.getElementById('dokidoki-preview-recalculate-warning').hidden = false;
+          document.getElementById('dokidoki-preview-confirm-recalculate').focus();
+          return;
+        }
+        const monsters = selected, target = Number(document.getElementById('dokidoki-preview-target-pl').value);
+        if (!monsters.length) {
+          setPlannerLog('Select at least one monster before calculating.', '计算前请至少选择一只怪物。', true);
+          return;
+        }
+        let failed = 0;
+        monsters.forEach(monster => {
+          resetMonsterDraft(monster);
+          const solution = solvePreviewExact(monster, target);
+          if (!solution) { monster.error = localText('Exact target is unreachable.', '无法精确到达目标。'); failed++; return; }
+          Object.assign(monster.target, solution.targets);
+          allUpgradeConfig.forEach(item => { monster.raw[item.key] = String(monster.target[item.key]); });
+          monster.exact = true;
+        });
+        document.getElementById('dokidoki-preview-recalculate-warning').hidden = true;
+        if (failed) {
+          syncDraftMode();
+          setPlannerLog(`${failed} monster(s) cannot reach PL ${target} exactly.`, `${failed}只怪物无法精确到达PL ${target}。`, true);
+        } else {
+          draftMode = 'exact';
+          setPlannerLog(`Exact PL ${target} draft calculated locally. No request was sent.`, `已在本地生成精确到PL ${target}的草案，未发送任何请求。`);
+        }
+        renderPlanner();
+      };
+      const applyGroupAction = (groupKey, action, slot = '') => {
+        const group = upgradeGroups.find(item => item.key === groupKey), monsters = (slot ? [ensurePlannerMonster(slot)] : selectedPlannerMonsters()).filter(Boolean);
+        if (!group) return;
+        monsters.forEach(monster => {
+          monster.error = '';
+          if (action === 'group-increment') group.items.forEach(item => { monster.target[item.key] = Math.min(item.max, monster.target[item.key] + 1); });
+          else if (action === 'group-equalize') {
+            const target = Math.max(...group.items.map(item => monster.target[item.key]));
+            group.items.forEach(item => { monster.target[item.key] = Math.min(item.max, Math.max(monster.current[item.key], target)); });
+          }
+          group.items.forEach(item => {
+            monster.raw[item.key] = String(monster.target[item.key]);
+            delete monster.invalid[item.key];
+          });
+          monster.exact = false;
+        });
+        markDraftCustom();
+      };
+      const setupProfileUpgradeLinks = () => {
+        ['dokidoki-preview-combat-attributes', 'dokidoki-preview-chaos-upgrades'].forEach(id => {
+          const heading = document.querySelector(`#${id} > .preview-section-title`);
+          if (!heading || heading.querySelector('[data-profile-upgrade-link]')) return;
+          const link = document.createElement('a');
+          link.className = 'preview-chip';
+          link.href = '#planner/1';
+          link.setAttribute('data-profile-upgrade-link', '');
+          Object.assign(link.dataset, { en: 'Upgrade in PL Planner', zh: '在PL计划器中升级' });
+          link.textContent = '在PL计划器中升级';
+          heading.appendChild(link);
+        });
+      };
+      const updateCompactToolLabels = () => document.querySelectorAll('.hvut-ml-side input[data-short-en][data-short-zh]').forEach(control => {
+        const full = control.dataset[isChinese ? 'zh' : 'en'], short = control.dataset[isChinese ? 'shortZh' : 'shortEn'];
+        control.value = short;
+        control.title = full;
+        control.setAttribute('aria-label', full);
+      });
+      const syncPreviewToolbar = () => {
+        const toolbar = document.getElementById('dokidoki-toolbar'), drawer = document.getElementById('dokidoki-preview-tool-drawer');
+        if (!toolbar || !drawer) return;
+        const nextMode = previewToolbarMode(toolbar.getBoundingClientRect().width);
+        if (toolDrawerMode === 'drawer') toolDrawerOpen = drawer.open;
+        toolDrawerMode = nextMode;
+        toolbar.dataset.previewToolbarMode = nextMode;
+        drawer.open = nextMode === 'drawer' ? toolDrawerOpen : true;
+      };
+      const setupPreviewToolbar = () => {
+        const toolbar = document.getElementById('dokidoki-toolbar'), drawer = document.getElementById('dokidoki-preview-tool-drawer'), side = document.querySelector('.hvut-ml-side');
+        if (!toolbar || !drawer || !side) return;
+        toolbar.replaceChildren(drawer);
+        drawer.appendChild(side);
+        drawer.addEventListener('toggle', () => { if (toolDrawerMode === 'drawer') toolDrawerOpen = drawer.open; });
+        updateCompactToolLabels();
+        syncPreviewToolbar();
+        if ('ResizeObserver' in window) new ResizeObserver(() => requestAnimationFrame(syncPreviewToolbar)).observe(toolbar);
+      };
+      const focusPlannerMonster = slot => requestAnimationFrame(() => {
+        const matrixRow = document.querySelector(`[data-upgrade-row="${slot}"]`), cardSummary = document.querySelector(`[data-upgrade-card="${slot}"] > summary`);
+        const target = Number(stage.dataset.previewWidth) <= 900 ? cardSummary : matrixRow;
+        target?.focus({ preventScroll: false });
+        target?.scrollIntoView({ block: 'center', inline: 'nearest' });
+      });
+      const selectPlannerMonster = (slot, exclusive = false) => {
+        const monster = ensurePlannerMonster(slot);
+        if (!monster) return;
+        if (exclusive) plannerSelected.clear();
+        plannerSelected.add(monster.slot);
+        activePlannerSlot = monster.slot;
+        syncDraftMode();
+        renderPlanner();
+      };
+      const setupPlannerInteractions = () => {
+        const article = document.querySelector('[data-preview-view="planner"] article');
+        article.addEventListener('click', event => {
+          const option = event.target.closest('[data-planner-slot]');
+          if (option) {
+            const slot = option.dataset.plannerSlot;
+            if (plannerSelected.has(slot) && plannerSelected.size > 1) plannerSelected.delete(slot); else plannerSelected.add(slot);
+            activePlannerSlot = slot;
+            syncDraftMode();
+            renderPlanner();
+            return;
+          }
+          const button = event.target.closest('button');
+          if (!button) return;
+          if (button.id === 'dokidoki-preview-calculate') applyExactPlan();
+          else if (button.id === 'dokidoki-preview-confirm-recalculate') applyExactPlan(true);
+          else if (button.id === 'dokidoki-preview-cancel-recalculate') document.getElementById('dokidoki-preview-recalculate-warning').hidden = true;
+          else if (button.id === 'dokidoki-preview-reset-draft') resetDraft();
+          else if (button.id === 'dokidoki-preview-review-confirmation') openPreviewConfirmation();
+          else if (button.id === 'dokidoki-preview-confirm-cancel') {
+            const dialog = document.getElementById('dokidoki-preview-confirm-dialog');
+            if (typeof dialog.close === 'function') dialog.close(); else dialog.removeAttribute('open');
+          }
+          else if (button.dataset.action === 'row-reset') resetDraft(button.dataset.slot);
+          else if (button.dataset.action?.startsWith('group-')) applyGroupAction(button.dataset.group, button.dataset.action, button.dataset.slot);
+        });
+        article.addEventListener('change', event => {
+          const input = event.target.closest('[data-upgrade-slot][data-upgrade-key]');
+          if (input) {
+            const monster = ensurePlannerMonster(input.dataset.upgradeSlot), item = allUpgradeConfig.find(config => config.key === input.dataset.upgradeKey);
+            const raw = input.value, value = Number(raw);
+            monster.raw[item.key] = raw;
+            if (raw.trim() && Number.isInteger(value) && value >= monster.current[item.key] && value <= item.max) {
+              monster.target[item.key] = value;
+              delete monster.invalid[item.key];
+            } else monster.invalid[item.key] = true;
+            monster.error = '';
+            monster.exact = false;
+            activePlannerSlot = monster.slot;
+            markDraftCustom();
+            return;
+          }
+          if (event.target.id === 'dokidoki-preview-target-pl') {
+            selectedPlannerMonsters().forEach(monster => { monster.error = ''; });
+            syncDraftMode();
+            renderPlanner();
+          }
+        });
+      };
+      setupPlannerMarkup();
+      setupProfileUpgradeLinks();
+      setupPlannerInteractions();
+
+      let isChinese = true, sortKey = 'slot', sortDirection = 1, dualRoster = true;
+      const selectedRow = () => rows.find(row => row.getAttribute('aria-selected') === 'true');
+      const selectRosterRow = row => {
+        if (!row) return;
+        rows.forEach(item => { const selected = item === row; item.setAttribute('aria-selected', String(selected)); item.tabIndex = selected ? 0 : -1; });
+        rosterPanes.forEach(pane => pane.removeAttribute('aria-activedescendant'));
+        row.parentElement?.setAttribute('aria-activedescendant', row.id);
+      };
+      const matchesRosterRow = row => {
+        const query = document.getElementById('dokidoki-preview-filter-search').value.trim().toLowerCase(), race = raceSelect.value;
+        return (!query || row.dataset.name.toLowerCase().includes(query) || row.dataset.slot.includes(query)) && (!race || row.dataset.raceKey === race);
+      };
+      const renderRoster = (resetScroll = false) => {
+        const requestedWidth = Number(stage.dataset.previewWidth || 1536);
+        dualRoster = requestedWidth >= 1180 && stage.getBoundingClientRect().width >= 1180;
+        const visibleRows = rows.filter(row => { row.hidden = !matchesRosterRow(row); return !row.hidden; });
+        const [leftRows, rightRows] = splitRosterItems(visibleRows, dualRoster);
+        const hiddenRows = rows.filter(row => row.hidden);
+        rosterPanes[0].replaceChildren(...leftRows, ...hiddenRows);
+        rosterPanes[1].replaceChildren(...rightRows);
+        rightRosterPane.hidden = !dualRoster;
+        roster.dataset.previewRosterMode = dualRoster ? 'dual' : 'single';
+        document.querySelector('[data-preview-pane-count="left"]').textContent = String(leftRows.length);
+        document.querySelector('[data-preview-pane-count="right"]').textContent = String(rightRows.length);
+        document.querySelector('[data-preview-result-count]').textContent = `${visibleRows.length} / ${rows.length}`;
+        const active = selectedRow();
+        rosterPanes.forEach(pane => pane.removeAttribute('aria-activedescendant'));
+        if (active && !active.hidden) active.parentElement?.setAttribute('aria-activedescendant', active.id);
+        if (resetScroll) rosterPanes.forEach(pane => { pane.scrollTop = 0; });
+      };
+      const filterRoster = () => renderRoster(true);
+      const updateFilterToggleLabel = () => {
+        const button = document.getElementById('dokidoki-preview-filter-toggle'), collapsed = stage.dataset.previewFilterCollapsed === 'true';
+        button.setAttribute('aria-expanded', String(!collapsed));
+        button.textContent = button.dataset[`${collapsed ? 'collapsed' : 'expanded'}${isChinese ? 'Zh' : 'En'}`];
+      };
+      const toggleFilterRail = collapsed => { stage.dataset.previewFilterCollapsed = String(collapsed ?? stage.dataset.previewFilterCollapsed !== 'true'); updateFilterToggleLabel(); };
+      const setProfileText = (field, value) => document.querySelectorAll(`[data-profile-${field}]`).forEach(element => { element.textContent = value; });
+      const updateProfile = row => {
+        if (!row) return;
+        const race = isChinese ? row.dataset.raceZh : row.dataset.raceEn;
+        setProfileText('name', row.dataset.name);
+        setProfileText('slot', row.dataset.slot);
+        setProfileText('race', race);
+        setProfileText('pl', row.dataset.pl);
+        setProfileText('wins', row.dataset.record);
+        setProfileText('gifts', row.dataset.gifts);
+        setProfileText('morale', Number(row.dataset.morale).toLocaleString(isChinese ? 'zh-CN' : 'en-US'));
+        setProfileText('hunger', Number(row.dataset.hunger).toLocaleString(isChinese ? 'zh-CN' : 'en-US'));
+        const portrait = document.querySelector('[data-profile-portrait]');
+        portrait.src = `./resource/dokidoki/dist/detail/${row.dataset.raceKey}.webp`;
+        portrait.alt = `${row.dataset.name} — ${race}`;
+        document.querySelectorAll('[data-profile-upgrade-link]').forEach(link => { link.href = `#planner/${row.dataset.slot}`; });
+      };
+      const openMonster = row => {
+        if (!row) return;
+        selectRosterRow(row);
+        updateProfile(row);
+        location.hash = `#monster/${row.dataset.slot}`;
+      };
+      const updateLanguage = () => {
+        document.documentElement.lang = isChinese ? 'zh-CN' : 'en';
+        document.querySelectorAll('[data-en][data-zh]').forEach(element => { const value = element.dataset[isChinese ? 'zh' : 'en']; if (element instanceof HTMLInputElement) element.value = value; else element.textContent = value; });
+        document.querySelectorAll('[data-placeholder-en][data-placeholder-zh]').forEach(element => { element.placeholder = element.dataset[isChinese ? 'placeholderZh' : 'placeholderEn']; });
+        document.querySelectorAll('[data-preview-race]').forEach(cell => { cell.textContent = races[Number(cell.dataset.previewRace)][isChinese ? 2 : 1]; });
+        updateProfile(selectedRow());
+        updateFilterToggleLabel();
+        updateCompactToolLabels();
+        renderPlanner();
+      };
+      const sortRoster = key => {
+        sortDirection = sortKey === key ? -sortDirection : 1; sortKey = key;
+        const value = row => ['slot','pl','gifts'].includes(key) ? Number(row.dataset[key]) : String(key === 'race' ? row.dataset.raceEn : key === 'record' ? row.dataset.record : row.dataset.name);
+        rows.sort((left, right) => (typeof value(left) === 'number' ? value(left) - value(right) : value(left).localeCompare(value(right))) * sortDirection);
+        document.querySelectorAll('.hvut-ml-sort > span').forEach(item => item.classList.toggle('hvut-ml-sort-current', item.dataset.sort === key));
+        renderRoster(true);
+      };
+      document.querySelector('[data-preview-language]').addEventListener('click', () => { isChinese = !isChinese; updateLanguage(); });
+      document.getElementById('dokidoki-preview-filter-toggle').addEventListener('click', () => toggleFilterRail());
+      document.getElementById('dokidoki-preview-filter-search').addEventListener('input', filterRoster);
+      raceSelect.addEventListener('change', filterRoster);
+      roster.addEventListener('click', event => { const row = event.target.closest('.msl'); if (row) selectRosterRow(row); });
+      roster.addEventListener('dblclick', event => { const row = event.target.closest('.msl'); if (row) openMonster(row); });
+      roster.addEventListener('keydown', event => {
+        const current = event.target.closest('.msl'), keys = ['ArrowDown','ArrowUp','ArrowLeft','ArrowRight','Enter',' '];
+        if (!current || !keys.includes(event.key)) return;
+        event.preventDefault();
+        if (event.key === 'Enter') return openMonster(current);
+        if (event.key === ' ') return selectRosterRow(current);
+        const pane = current.parentElement, paneRows = [...pane.querySelectorAll('.msl:not([hidden])')], index = paneRows.indexOf(current);
+        let next = current;
+        if (event.key === 'ArrowDown') next = paneRows[Math.min(index + 1, paneRows.length - 1)] || current;
+        if (event.key === 'ArrowUp') next = paneRows[Math.max(index - 1, 0)] || current;
+        if (dualRoster && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+          const targetPane = event.key === 'ArrowLeft' ? rosterPanes[0] : rosterPanes[1];
+          if (targetPane !== pane) { const targetRows = [...targetPane.querySelectorAll('.msl:not([hidden])')]; next = targetRows[Math.min(index, targetRows.length - 1)] || current; }
+        }
+        selectRosterRow(next);
+        next.focus();
+      });
+      const sortBar = document.querySelector('.hvut-ml-sort');
+      sortBar.addEventListener('click', event => { const control = event.target.closest('[data-sort]'); if (control) sortRoster(control.dataset.sort); });
+      sortBar.addEventListener('keydown', event => { const control = event.target.closest('[data-sort]'); if (control && ['Enter',' '].includes(event.key)) { event.preventDefault(); sortRoster(control.dataset.sort); } });
+      const views = new Set(['list','monster','planner','rename']);
+      const updateRoute = () => {
+        const requested = location.hash.slice(1), monsterMatch = /^monster\/(\d+)$/.exec(requested), plannerMatch = /^planner\/(\d+)$/.exec(requested);
+        let view = views.has(requested) ? requested : 'list';
+        if (monsterMatch) {
+          const row = rows.find(item => item.dataset.slot === monsterMatch[1]);
+          if (row) { view = 'monster'; selectRosterRow(row); updateProfile(row); }
+        }
+        if (plannerMatch) {
+          const monster = ensurePlannerMonster(plannerMatch[1]);
+          if (monster) { view = 'planner'; selectPlannerMonster(monster.slot, true); }
+        }
+        document.querySelectorAll('[data-preview-view]').forEach(section => { section.hidden = section.dataset.previewView !== view; });
+        document.querySelectorAll('#dokidoki-preview-nav a').forEach(link => { if (link.hash === `#${view}`) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current'); });
+        document.getElementById('dokidoki-preview-main').focus?.({ preventScroll: true });
+        if (plannerMatch) focusPlannerMonster(plannerMatch[1]);
+      };
+      window.addEventListener('hashchange', updateRoute);
+      const widthButtons = [...document.querySelectorAll('button[data-preview-width]')];
+      const setPreviewWidth = value => {
+        stage.dataset.previewWidth = value;
+        widthButtons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.previewWidth === value)));
+        requestAnimationFrame(() => { renderRoster(false); renderUpgradeEditor(); syncPreviewToolbar(); });
+      };
+      widthButtons.forEach(button => button.addEventListener('click', () => setPreviewWidth(button.dataset.previewWidth)));
+      document.querySelector('[data-preview-images]').addEventListener('click', event => { const hidden = document.documentElement.classList.toggle('dokidoki-preview-images-off'); event.currentTarget.setAttribute('aria-pressed', String(hidden)); });
+      document.addEventListener('dokidoki:ready', () => { document.documentElement.dataset.previewMounted = '1'; setupPreviewToolbar(); }, { once: true });
+      if ('ResizeObserver' in window) new ResizeObserver(() => requestAnimationFrame(() => { renderRoster(false); syncPreviewToolbar(); })).observe(stage);
+      updateLanguage(); selectRosterRow(rows[0]); setPreviewWidth('1536'); toggleFilterRail(false); renderRoster(false); updateRoute();
+    })();
+  </script>
+  <script src="./dokidoki.js"></script>
+</body>
+</html>
